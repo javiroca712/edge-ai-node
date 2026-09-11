@@ -1,0 +1,14 @@
+# Ignore the extracted chat blocks
+extracted_blocks.md
+
+# Ignore models if placed locally
+models/
+*.gguf
+
+# Ignore IDE files
+.vscode/
+.idea/
+*.swp
+
+# Ignore build artifacts
+build/
