@@ -31,3 +31,14 @@ This document summarizes the technical challenges encountered while building the
 - **Challenge:** Upon initial OS installation, the Linux `motd` reported the CPU temperature at 216.0°C.
 - **Why:** Asus motherboards using the ITE Super I/O chip frequently map floating hardware pins to generic Linux sensor hooks, resulting in garbage data. If left unresolved, the Linux thermal daemon (`thermald`) would panic and forcefully throttle the CPU to 800MHz to "save" the hardware during heavy inference.
 - **Decision:** Deployed `lm-sensors` and executed a forced `sensors-detect` hardware probe to recalibrate the driver mappings, ensuring system logic remains tied to true thermal reality.
+
+## 7. Load Balancing Architecture: LiteLLM vs HAProxy
+- **Evaluated:** Using HAProxy or NGINX on the edge node to balance traffic across the two GPUs.
+- **Challenge:** Standard reverse proxies do not understand OpenAI API semantics, cannot parse token limits natively, and would consume precious RAM/CPU overhead on the edge node.
+- **Decision:** Deployed **LiteLLM** on the local Windows Docker Desktop.
+- **Why:** LiteLLM intercepts requests exactly like an OpenAI endpoint. It intelligently tracks queue depths and routes prompts using a \least-busy\ algorithm. By running it locally on the client machine instead of the edge server, we dedicate 100% of the edge node's system memory and compute to raw neural network inference.
+
+## 8. Observability & Dashboard Provisioning
+- **Challenge:** The initial Grafana deployment relied on ephemeral container storage, leading to complete data loss (including custom-built dashboards) when the stack was migrated or torn down via Docker Compose.
+- **Decision:** Shifted to an entirely **Dashboards-as-Code** model using Grafana Auto-Provisioning.
+- **Why:** By declaring data sources (\datasource.yml\) and dashboard definitions (\llama_metrics.json\) statically in the Git repository, the PLG stack becomes immutable, resilient, and immune to container volatility.

@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: "llama-api"
+    static_configs:
+      - targets: ["100.104.80.65:8082", "100.104.80.65:8083"]
+
+  - job_name: "ubuntu-hardware"
+    static_configs:
+      - targets: ["100.104.80.65:9100"]

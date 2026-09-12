@@ -10,7 +10,8 @@ SERVER_IP="<YOUR_TAILSCALE_IP>"
 
 docker run -d -p 3000:8080 \
   --add-host=host.docker.internal:host-gateway \
-  -e OLLAMA_BASE_URL="http://${SERVER_IP}:8082" \
+  -e OPENAI_API_BASE_URL="http://host.docker.internal:4000/v1" \
+  -e OPENAI_API_KEY="sk-1234" \
   -v open-webui:/app/backend/data \
   --name open-webui \
   --restart always \
