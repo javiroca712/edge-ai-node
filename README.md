@@ -13,6 +13,64 @@ This project is an edge AI inference node designed to run large language models 
 - **Frontend / Orchestration:** Docker-based Open WebUI running on the local Windows client (`localhost:3000`), natively integrated with the LiteLLM load balancer.
 - **Observability Stack:** A PLG stack (Prometheus, Loki, Grafana) deployed via `docker-compose` on the local machine (`localhost:3001`). Dashboards and metrics scraping are defined entirely as code using Grafana Auto-Provisioning.
 
+### Architecture Diagram
+
+```mermaid
+flowchart TD
+    subgraph Client ["Client Machine (Local Windows)"]
+        direction TB
+        UI["Open WebUI (Port 3000)"]
+        Agents["Local AI Agents (CrewAI/AutoGen)"]
+        
+        subgraph Docker ["Local Docker Desktop"]
+            LiteLLM["LiteLLM Router (Port 4000)"]
+            
+            subgraph PLG ["PLG Observability Stack"]
+                Grafana["Grafana (Port 3001)"]
+                Prometheus["Prometheus (Port 9090)"]
+                Loki["Loki"]
+            end
+        end
+    end
+
+    subgraph Edge ["Edge AI Node (Ubuntu Bare-Metal)"]
+        direction TB
+        
+        subgraph SystemD ["SystemD Services"]
+            Llama0["llama-api-0 (Port 8082)"]
+            Llama1["llama-api-1 (Port 8083)"]
+        end
+        
+        subgraph Compute ["Compute Layer"]
+            ROCm0["ROCm Stack (gfx1030)"]
+            ROCm1["ROCm Stack (gfx1030)"]
+        end
+        
+        subgraph Hardware ["Hardware"]
+            GPU0["GPU 0 (RX 6700 XT)"]
+            GPU1["GPU 1 (RX 6700 XT)"]
+        end
+    end
+
+    %% Routing
+    UI -->|OpenAI API| LiteLLM
+    Agents -->|OpenAI API| LiteLLM
+    LiteLLM -->|Load Balances HTTP| Llama0
+    LiteLLM -->|Load Balances HTTP| Llama1
+
+    %% Compute Stack
+    Llama0 --> Compute
+    Llama1 --> Compute
+    ROCm0 --> GPU0
+    ROCm1 --> GPU1
+
+    %% Observability
+    Grafana -->|Queries| Prometheus
+    Grafana -->|Queries| Loki
+    Prometheus -.->|Scrapes /metrics| Llama0
+    Prometheus -.->|Scrapes /metrics| Llama1
+```
+
 ## 3. Discovered State (Successfully Built & Tested)
 - **OS Foundation:** Ubuntu installed, packages updated, and `lm-sensors` configured to bypass Asus hardware sensor mapping bugs.
 - **ROCm Drivers:** The official AMD ROCm repository is registered and the core compute stack is installed natively via `apt`.
