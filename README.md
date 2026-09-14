@@ -89,3 +89,6 @@ flowchart TD
 3. **Containerized vLLM Deployment:** Spin up the `vllm/vllm-openai` ROCm Docker image, mounting `/dev/kfd` and `/dev/dri`, pointing it to the `~/ai-models` directory.
 4. **Update LiteLLM:** Adjust the `config.yaml` to route traffic to the new vLLM endpoints instead of `llama.cpp`.
 5. **Update Observability:** Wire Prometheus to scrape the vLLM metrics endpoint to seamlessly maintain observability in Grafana.
+
+## 6. License
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
