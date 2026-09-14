@@ -12,3 +12,6 @@ models/
 
 # Ignore build artifacts
 build/
+
+# Ignore private files and prompts
+private/
