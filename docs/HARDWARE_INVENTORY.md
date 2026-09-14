@@ -40,7 +40,7 @@ This document serves as the verified source of truth for the edge AI node's phys
 ## 5. Network & OS
 *   **Operating System:** Ubuntu 26.04 LTS (Bare-Metal)
 *   **Kernel Overlay:** OverlayFS enabled (Docker storage).
-*   **IP Address (Tailscale/Local):** `100.104.80.65`
+*   **Networking:** Static LAN or Tailscale private mesh VPN (configured via `.env`)
 *   **Host:** `ubuntu01`
 
 ---

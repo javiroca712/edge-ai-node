@@ -4,6 +4,8 @@ services:
   litellm:
     image: ghcr.io/berriai/litellm:main-latest
     container_name: litellm-router
+    extra_hosts:
+      - "edge-node:${EDGE_NODE_HOST:-127.0.0.1}"
     ports:
       - "4000:4000"
     volumes:

@@ -15,3 +15,9 @@ build/
 
 # Ignore private files and prompts
 private/
+
+# Ignore local environment configs & secrets
+.env
+.env.*
+*.env
+!.env.example
