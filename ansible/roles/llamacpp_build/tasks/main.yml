@@ -51,8 +51,7 @@
     owner: llama-api
     group: llama-api
     mode: '0644'
-  args:
-    creates: /opt/ai-models/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf
+    force: no
 
 - name: Ensure correct ownership on /opt/llama.cpp and /opt/ai-models
   file:

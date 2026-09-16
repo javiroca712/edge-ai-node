@@ -30,7 +30,7 @@
 
 - name: Add admin user to GPU acceleration groups
   user:
-    name: "{{ ansible_user | default(ansible_env.USER) }}"
+    name: "{{ target_user | default('jroca') }}"
     groups:
       - video
       - render

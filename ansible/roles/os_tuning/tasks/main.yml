@@ -66,6 +66,7 @@
   register: dkms_asus_check
   failed_when: false
   changed_when: false
+  check_mode: no
 
 - name: Clone asus-wmi-sensors repository for motherboard thermal telemetry fix
   git:
@@ -89,3 +90,4 @@
 - name: Probe for hardware sensors
   command: sensors-detect --auto
   changed_when: false
+  check_mode: no
