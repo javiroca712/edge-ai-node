@@ -1,0 +1,91 @@
+---
+- name: Update apt cache and upgrade packages
+  apt:
+    update_cache: yes
+    upgrade: dist
+
+- name: Install kernel headers and base hardware compilation dependencies
+  apt:
+    name:
+      - lm-sensors
+      - build-essential
+      - dkms
+      - git
+      - bc
+      - sysstat
+      - linux-headers-generic
+    state: present
+
+- name: Configure GRUB command line with PCIe stability and IOMMU flags
+  lineinfile:
+    path: /etc/default/grub
+    regexp: '^GRUB_CMDLINE_LINUX_DEFAULT='
+    line: 'GRUB_CMDLINE_LINUX_DEFAULT="quiet splash iommu=pt pcie_aspm=off"'
+  register: grub_config
+
+- name: Update GRUB configuration
+  command: update-grub
+  when: grub_config.changed
+
+- name: Check if LVM volume exists
+  stat:
+    path: /dev/mapper/ubuntu--vg-ubuntu--lv
+  register: lvm_volume
+
+- name: Extend LVM volume to utilize 100% of volume group disk space
+  shell: |
+    lvextend -l +100%FREE /dev/mapper/ubuntu--vg-ubuntu--lv || true
+    resize2fs /dev/mapper/ubuntu--vg-ubuntu--lv || true
+  when: lvm_volume.stat.exists
+  changed_when: false
+
+- name: Check existing swapfile
+  stat:
+    path: /swap.img
+  register: swap_file
+
+- name: Create or resize 16GB swap file
+  shell: |
+    swapoff /swap.img || true
+    fallocate -l 16G /swap.img
+    chmod 600 /swap.img
+    mkswap /swap.img
+    swapon /swap.img
+  when: not swap_file.stat.exists or swap_file.stat.size < 16000000000
+
+- name: Ensure swap entry is present in /etc/fstab
+  mount:
+    path: none
+    src: /swap.img
+    fstype: swap
+    opts: sw
+    state: present
+
+- name: Check if asus-wmi-sensors DKMS module is installed
+  command: dkms status -m asus-wmi-sensors
+  register: dkms_asus_check
+  failed_when: false
+  changed_when: false
+
+- name: Clone asus-wmi-sensors repository for motherboard thermal telemetry fix
+  git:
+    repo: https://github.com/electrified/asus-wmi-sensors.git
+    dest: /usr/src/asus-wmi-sensors
+    version: master
+  when: dkms_asus_check.stdout == ""
+
+- name: Build and install asus-wmi-sensors DKMS module
+  command: make dkms
+  args:
+    chdir: /usr/src/asus-wmi-sensors
+  when: dkms_asus_check.stdout == ""
+
+- name: Load asus-wmi-sensors kernel module
+  modprobe:
+    name: asus-wmi-sensors
+    state: present
+  ignore_errors: yes
+
+- name: Probe for hardware sensors
+  command: sensors-detect --auto
+  changed_when: false

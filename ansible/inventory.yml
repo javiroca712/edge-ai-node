@@ -1,0 +1,7 @@
+all:
+  children:
+    edge_nodes:
+      hosts:
+        ubuntu01:
+          ansible_host: 100.104.80.65
+          ansible_user: jroca

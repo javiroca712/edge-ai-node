@@ -1,0 +1,14 @@
+[Unit]
+Description=Promtail Log Shipper
+After=network.target
+
+[Service]
+Type=simple
+User=promtail
+Group=promtail
+ExecStart=/usr/local/bin/promtail -config.file=/etc/promtail/config.yml
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

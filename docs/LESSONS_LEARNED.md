@@ -21,3 +21,18 @@ This document captures the key engineering insights, gotchas, and phenomena disc
 **Context:** We attempted Pipeline Parallelism (splitting a single model across both GPUs).
 **Discovery:** Despite having two powerful RX 6700 XT cards, ROCm violently crashed with `hipMemcpyAsync` errors. The Asus B450 motherboard topology forces the second PCIe slot to run at x4 speeds, physically preventing the massive Peer-to-Peer (P2P) memory transfers required for layer-splitting. 
 **Insight:** Software architecture must map to physical reality. We abandoned Pipeline Parallelism and pivoted to Replica Parallelism, letting LiteLLM handle the clustering at the HTTP layer, bypassing the PCIe bottlenecks entirely.
+
+## 5. The RDNA2 Flash Attention Driver Trap (`max_blocks_per_sm`)
+**Context:** Compiling `llama.cpp` with `-DAMDGPU_TARGETS=gfx1030` and launching prompts with larger context windows.
+**Discovery:** `llama-server` crashed with an immediate abort: `GGML_ASSERT(max_blocks_per_sm > 0) failed` in `fattn-common.cuh`. Because Navi 22 has fewer Vector General-Purpose Registers (VGPRs) per Compute Unit than enterprise cards, the occupancy calculator returned 0 active blocks for the standard 128x128 tile kernel.
+**Insight:** Always patch `if (max_blocks_per_sm <= 0) { max_blocks_per_sm = 1; }` before compiling, or constrain micro-batch sizes (`-ub 64 -b 64`) to force smaller tile allocations on consumer AMD hardware.
+
+## 6. PCIe Active State Power Management (ASPM) on Secondary Slots
+**Context:** Heavy inference runs would intermittently hang or disconnect the secondary GPU on PCIe 3.0 x4.
+**Discovery:** Consumer motherboards route secondary slots through the chipset, where aggressive OS-level ASPM attempts power-saving sleep transitions during transient memory-transfer pauses, corrupting the ROCm ring buffer.
+**Insight:** Always boot bare-metal GPU nodes with `pcie_aspm=off iommu=pt` in GRUB.
+
+## 7. Forensic Auditing for Infrastructure-as-Code (IaC)
+**Context:** Transitioning a manually tuned server to automated Ansible playbooks after months of debugging.
+**Discovery:** Imperative scripts left in the repo missed critical tweaks: DKMS drivers, swap files, crontab metric pollers, and custom system accounts.
+**Insight:** Never write IaC solely from memory or old notes. Always perform live host forensic auditing (`apt-mark showmanual`, `/var/log/apt/history.log`, `systemctl list-units`, and `.bash_history`) to capture all "Dark Matter" changes.

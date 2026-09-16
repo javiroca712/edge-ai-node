@@ -10,35 +10,38 @@ This document summarizes the technical challenges encountered while building the
 ## 2. Multi-GPU Parallelism: Pipeline vs. Replica
 - **Evaluated:** Splitting a large model (e.g., 70B parameter) across two 12GB RX 6700 XT GPUs (1x24GB Mode / Pipeline Parallelism).
 - **Challenge:** The B450-F motherboard does not support x8/x8 PCIe bifurcation. While the primary slot runs at PCIe 3.0 x16, the secondary slot shares lanes with the M.2 NVMe drive and is severely bottlenecked at **PCIe 3.0 x4** (~3.9 GB/s). Handing off intermediate tensors across an x4 bus drops inference speeds to ~20 tokens per second.
-- **Decision:** Optimize for **Replica Parallelism (2x12GB Mode)**. Each GPU loads and runs an independent 8B model locally, completely isolating the compute. A load balancer (like LiteLLM or Kubernetes Ingress) routes user prompts to whichever GPU is free. This eliminates cross-GPU PCIe chatter and yields a combined cluster throughput of ~140 tokens per second.
+- **Decision:** Optimize for **Replica Parallelism (2x12GB Mode)**. Each GPU loads and runs an independent 8B model locally, completely isolating the compute. A load balancer (LiteLLM) routes user prompts to whichever GPU is free. This eliminates cross-GPU PCIe chatter and yields a combined cluster throughput of ~160 tokens per second.
 
 ## 3. ROCm on Consumer RDNA2 Silicon
-- **Challenge:** AMD's official ROCm (Radeon Open Compute) framework strictly targets enterprise CDNA accelerators (Instinct MI-series). It actively blocks consumer RDNA2 cards like the RX 6700 XT.
-- **Workaround:** We successfully tricked the ROCm runtime into accepting the unsupported silicon by forcing a global environment variable override: `export HSA_OVERRIDE_GFX_VERSION=10.3.0`.
+- **Challenge:** AMD's official ROCm framework strictly targets enterprise CDNA accelerators (Instinct MI-series) and actively blocks consumer RDNA2 cards like the RX 6700 XT (Navi 22 / `gfx1030`).
+- **Workaround:** We successfully instructed the ROCm runtime to accept the unsupported silicon by forcing a global environment variable override: `export HSA_OVERRIDE_GFX_VERSION=10.3.0` in `/etc/profile.d/rocm-override.sh`.
 
 ## 4. Serving Engine: Ollama vs. Native `llama.cpp` Compilation
-- **Initial Try:** Running pre-packaged, containerized wrappers like **Ollama** for model serving.
-- **Challenge:** The generic, pre-compiled AMD binaries provided by Ollama do not account for edge-case consumer silicon bugs. When pushed with high context windows, the unmodified drivers hit a `max_blocks_per_sm > 0` driver-level memory allocation crash specific to `gfx1030` architectures.
-- **Decision:** Compile `llama.cpp` entirely from C++ source code.
-- **Why:** Building from source allowed the injection of explicit compiler flags (`-DAMDGPU_TARGETS=gfx1030`) and manual C++ patches to the Flash Attention kernel (`fattn-common.cuh`), bypassing the hardware driver crashes and guaranteeing enterprise-grade stability.
+- **Initial Try:** Running pre-packaged, containerized wrappers like **Ollama** or generic Docker containers.
+- **Challenge:** Unmodified AMD binaries hit a `max_blocks_per_sm > 0` driver-level memory allocation crash specific to `gfx1030` architectures during Flash Attention matrix computations (`tile_case<128, 128>`).
+- **Decision:** Compile `llama.cpp` entirely from C++ source code with an explicit Flash Attention patch:
+  ```cpp
+  // ggml/src/ggml-cuda/fattn-common.cuh (line 1060)
+  if (max_blocks_per_sm <= 0) { max_blocks_per_sm = 1; }
+  ```
+- **Why:** Building from source allowed the injection of explicit compiler flags (`-DGGML_HIP=ON -DAMDGPU_TARGETS=gfx1030`) alongside this patch, bypassing the hardware driver abort and guaranteeing rock-solid stability.
 
 ## 5. The AMD Package Repository Sinkholes
-- **Challenge:** Initial attempts to install the ROCm stack using AMD's `amdgpu-install` wrapper script threw repeated `404 Not Found` and `File has unexpected size (hash mismatch)` errors.
-- **Why:** AMD's global CDN frequently experiences sync lags between repository manifests and edge cache binaries immediately following a release cycle.
-- **Decision:** Abandoned the brittle wrapper script. Manually imported the GPG signing keys, directly mapped the native `apt` repositories (pointing securely to the `noble` branch), and executed forced cache purges (`rm -rf /var/lib/apt/lists/*`) to rotate the CDN edge nodes.
+- **Challenge:** Initial attempts to install ROCm using AMD's `repo.radeon.com` repository threw repeated `404 Not Found` and `File has unexpected size (hash mismatch)` errors due to CDN sync lags.
+- **Decision:** Purged `/etc/apt/sources.list.d/rocm.list` and relied entirely on native Ubuntu 26.04 LTS (`resolute`) packages: `rocm-dev`, `hipcc`, `rocminfo`, `libhipblas-dev`, `libhipblas3`, and `librocm-smi-dev`. This guarantees package integrity and unifies security patching under standard Ubuntu updates.
 
 ## 6. Linux Hardware Sensor Mapping Bugs
-- **Challenge:** Upon initial OS installation, the Linux `motd` reported the CPU temperature at 216.0°C.
-- **Why:** Asus motherboards using the ITE Super I/O chip frequently map floating hardware pins to generic Linux sensor hooks, resulting in garbage data. If left unresolved, the Linux thermal daemon (`thermald`) would panic and forcefully throttle the CPU to 800MHz to "save" the hardware during heavy inference.
-- **Decision:** Deployed `lm-sensors` and executed a forced `sensors-detect` hardware probe to recalibrate the driver mappings, ensuring system logic remains tied to true thermal reality.
+- **Challenge:** Upon initial OS installation, the Linux `motd` reported the CPU temperature at 216.0°C due to floating pin readings on the Asus Super I/O chip. Linux `thermald` reacted by throttling the CPU down to 800MHz.
+- **Decision:** Installed `lm-sensors` and compiled the out-of-tree DKMS driver `asus-wmi-sensors` (`https://github.com/electrified/asus-wmi-sensors.git`). This corrected the thermal telemetry, preventing false thermal throttling.
 
-## 7. Load Balancing Architecture: LiteLLM vs HAProxy
-- **Evaluated:** Using HAProxy or NGINX on the edge node to balance traffic across the two GPUs.
-- **Challenge:** Standard reverse proxies do not understand OpenAI API semantics, cannot parse token limits natively, and would consume precious RAM/CPU overhead on the edge node.
-- **Decision:** Deployed **LiteLLM** on the local Windows Docker Desktop.
-- **Why:** LiteLLM intercepts requests exactly like an OpenAI endpoint. It intelligently tracks queue depths and routes prompts using a \least-busy\ algorithm. By running it locally on the client machine instead of the edge server, we dedicate 100% of the edge node's system memory and compute to raw neural network inference.
+## 7. PCIe Active State Power Management (ASPM) & IOMMU
+- **Challenge:** Under heavy sustained inference, the secondary RX 6700 XT on the PCIe 3.0 x4 bus would intermittently drop offline with `hipMemcpyAsync` timeouts or bus reset failures.
+- **Decision:** Added `iommu=pt pcie_aspm=off` to `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub`. Disabling ASPM prevents PCIe link sleep transitions on consumer motherboards, while IOMMU passthrough minimizes translation latency.
 
-## 8. Observability & Dashboard Provisioning
-- **Challenge:** The initial Grafana deployment relied on ephemeral container storage, leading to complete data loss (including custom-built dashboards) when the stack was migrated or torn down via Docker Compose.
-- **Decision:** Shifted to an entirely **Dashboards-as-Code** model using Grafana Auto-Provisioning.
-- **Why:** By declaring data sources (\datasource.yml\) and dashboard definitions (\llama_metrics.json\) statically in the Git repository, the PLG stack becomes immutable, resilient, and immune to container volatility.
+## 8. Edge Node Observability: Push vs. Pull Telemetry
+- **Challenge:** Standard Prometheus exporters cannot read AMD GPU power or Asus WMI motherboard sensors natively without heavy daemon overhead.
+- **Decision:** Deployed `prometheus-node-exporter` with textfile collector directory `/var/lib/prometheus/node-exporter`. A lightweight shell script (`/usr/local/bin/gpu-metrics.sh`) polls `sysfs` (`hwmon`) and `turbostat` every 10 seconds via cron, performing atomic file writes. Promtail ships all systemd journals to Loki on the client machine.
+
+## 9. Load Balancing Architecture: LiteLLM vs HAProxy
+- **Decision:** Deployed **LiteLLM** on the local client machine instead of the edge server.
+- **Why:** LiteLLM intercepts requests exactly like an OpenAI endpoint and tracks queue depths using a `least-busy` routing algorithm. Offloading this layer preserves 100% of the edge node's tight 4GB RAM for inference.

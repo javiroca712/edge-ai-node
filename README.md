@@ -103,6 +103,15 @@ flowchart TD
 ## 4. Repository Structure
 
 ```text
+├── ansible/                              # Infrastructure as Code (IaC) configuration
+│   ├── inventory.yml                     # Node IP and connection details
+│   ├── deploy_edge_node.yml              # Master playbook
+│   └── roles/
+│       ├── os_tuning/                    # GRUB flags (pcie_aspm=off), 16GB swap, LVM, asus-wmi-sensors DKMS
+│       ├── amd_rocm/                     # Native Ubuntu 26.04 ROCm 7.x stack & llama-api system account
+│       ├── llamacpp_build/               # Source compilation, Flash Attention patch, GGUF model download
+│       ├── replica_services/             # Multi-GPU systemd service daemons (Ports 8082 & 8083)
+│       └── observability/                # Node exporter textfile collector, gpu-metrics.sh cron, Promtail
 ├── config/
 │   └── rocm-override.sh                  # Kernel environment variables for RDNA2
 ├── docker/
@@ -120,10 +129,12 @@ flowchart TD
 │   ├── HARDWARE_INVENTORY.md             # Verified bare-metal hardware telemetry
 │   └── LESSONS_LEARNED.md                # Benchmarks, container gotchas & technical insights
 ├── scripts/
-│   ├── build_llama.sh                    # Native C++ compilation with ROCm/HIPBLAS
-│   ├── install_rocm.sh                   # ROCm package repository setup & group permissions
-│   ├── setup_os.sh                       # OS provisioning and lm-sensors bug fixes
-│   ├── setup_replica_services.sh         # Systemd service generator for dual-GPU replica
+│   ├── legacy/                           # Verified imperative provisioning bash scripts
+│   │   ├── setup_os.sh                   # OS setup, LVM, 16GB swap, GRUB flags, DKMS
+│   │   ├── install_rocm.sh               # Native ROCm packages & llama-api user
+│   │   ├── build_llama.sh                # Source build, fattn patch, model download
+│   │   ├── setup_replica_services.sh     # Systemd services (ports 8082/8083)
+│   │   └── setup_observability.sh        # Node exporter textfile collector & Promtail
 │   ├── start_llama.sh                    # Dockerized fallback runner
 │   └── start_webui.sh                    # Open WebUI startup helper
 ├── tests/
@@ -148,20 +159,13 @@ For comprehensive technical post-mortems and engineering logs, refer to the docu
 ## 6. Quickstart & Local Setup
 
 ### Step 1: Provision the Bare-Metal Ubuntu Node
-On the Ubuntu server:
+From your control machine with Ansible installed:
 ```bash
-# 1. Update OS and tune hardware sensors
-bash scripts/setup_os.sh
+# 1. Update the inventory file with your node's IP address
+nano ansible/inventory.yml
 
-# 2. Install ROCm compute stack and apply gfx1030 override
-bash scripts/install_rocm.sh
-sudo reboot
-
-# 3. Build llama.cpp natively
-bash scripts/build_llama.sh
-
-# 4. Generate and start systemd replica services (Ports 8082 & 8083)
-bash scripts/setup_replica_services.sh
+# 2. Run the Ansible playbook to provision the OS, install ROCm, build llama.cpp, and start the replica services
+ansible-playbook -i ansible/inventory.yml ansible/deploy_edge_node.yml -K
 ```
 
 ### Step 2: Configure and Launch Client Stack

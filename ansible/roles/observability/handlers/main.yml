@@ -1,0 +1,11 @@
+---
+- name: Restart node exporter
+  systemd:
+    name: prometheus-node-exporter
+    state: restarted
+
+- name: Restart promtail
+  systemd:
+    name: promtail
+    state: restarted
+    daemon_reload: yes

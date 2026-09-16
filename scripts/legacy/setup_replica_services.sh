@@ -1,12 +1,12 @@
 #!/bin/bash
-# scripts/setup_replica_services.sh
-# Automates the creation of two identical llama.cpp backends for Replica Parallelism.
+# scripts/legacy/setup_replica_services.sh
+# Automates the creation of two independent llama.cpp systemd backends for Replica Parallelism.
 
 set -e
 
-echo "Stopping and disabling old monolithic service..."
-sudo systemctl stop llama-api.service || true
-sudo systemctl disable llama-api.service || true
+echo "1. Stopping and disabling old monolithic service if present..."
+sudo systemctl stop llama-api.service 2>/dev/null || true
+sudo systemctl disable llama-api.service 2>/dev/null || true
 
 for GPU_IDX in 0 1; do
     PORT=$((8082 + GPU_IDX))

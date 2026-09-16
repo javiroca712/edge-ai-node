@@ -1,0 +1,10 @@
+---
+- name: Provision Edge AI Node
+  hosts: edge_nodes
+  become: yes
+  roles:
+    - os_tuning
+    - amd_rocm
+    - llamacpp_build
+    - replica_services
+    - observability

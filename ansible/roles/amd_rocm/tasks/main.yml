@@ -1,0 +1,44 @@
+---
+- name: Remove stale external AMD repo lists if present (avoids CDN hash mismatches)
+  file:
+    path: /etc/apt/sources.list.d/rocm.list
+    state: absent
+
+- name: Install native Ubuntu ROCm compute and development packages
+  apt:
+    name:
+      - rocm-dev
+      - hipcc
+      - rocminfo
+      - libhipblas-dev
+      - libhipblas3
+      - librocm-smi-dev
+      - librocm-smi64-7
+      - rocm-device-libs-21
+    state: present
+    update_cache: yes
+
+- name: Create dedicated system user for inference service
+  user:
+    name: llama-api
+    system: yes
+    shell: /usr/sbin/nologin
+    groups:
+      - video
+      - render
+    append: yes
+
+- name: Add admin user to GPU acceleration groups
+  user:
+    name: "{{ ansible_user | default(ansible_env.USER) }}"
+    groups:
+      - video
+      - render
+    append: yes
+
+- name: Apply RDNA2 Hardware Override for RX 6700 XT (gfx1030)
+  lineinfile:
+    path: /etc/profile.d/rocm-override.sh
+    line: "export HSA_OVERRIDE_GFX_VERSION=10.3.0"
+    create: yes
+    mode: '0644'

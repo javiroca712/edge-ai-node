@@ -1,0 +1,113 @@
+---
+- name: Install prometheus-node-exporter and telemetry helpers
+  apt:
+    name:
+      - prometheus-node-exporter
+      - unzip
+      - curl
+      - bc
+      - linux-tools-generic
+    state: present
+
+- name: Create Prometheus textfile collector directory
+  file:
+    path: /var/lib/prometheus/node-exporter
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Configure Prometheus node exporter textfile collector directory
+  lineinfile:
+    path: /etc/default/prometheus-node-exporter
+    regexp: '^ARGS='
+    line: 'ARGS="--collector.textfile.directory=/var/lib/prometheus/node-exporter"'
+  notify: Restart node exporter
+
+- name: Deploy custom GPU and CPU power/temp telemetry script
+  copy:
+    src: gpu-metrics.sh
+    dest: /usr/local/bin/gpu-metrics.sh
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Configure cron jobs to run telemetry script every 10 seconds
+  cron:
+    name: "gpu_metrics_10s_{{ item }}"
+    user: root
+    job: "{{ '' if item == 0 else 'sleep ' ~ item ~ '; ' }}/usr/local/bin/gpu-metrics.sh"
+    state: present
+  loop:
+    - 0
+    - 10
+    - 20
+    - 30
+    - 40
+    - 50
+
+- name: Create promtail system group
+  group:
+    name: promtail
+    system: yes
+
+- name: Create promtail system user
+  user:
+    name: promtail
+    system: yes
+    shell: /usr/sbin/nologin
+    group: promtail
+    groups:
+      - systemd-journal
+    append: yes
+
+- name: Create promtail configuration and data directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: promtail
+    group: promtail
+    mode: '0755'
+  loop:
+    - /etc/promtail
+    - /var/lib/promtail
+
+- name: Check if Promtail binary exists
+  stat:
+    path: /usr/local/bin/promtail
+  register: promtail_bin
+
+- name: Download and unpack Promtail binary (v2.9.4)
+  shell: |
+    curl -sL "https://github.com/grafana/loki/releases/download/v2.9.4/promtail-linux-amd64.zip" -o /tmp/promtail.zip
+    unzip -o /tmp/promtail.zip -d /tmp/
+    mv /tmp/promtail-linux-amd64 /usr/local/bin/promtail
+    chmod 755 /usr/local/bin/promtail
+    rm -f /tmp/promtail.zip
+  when: not promtail_bin.stat.exists
+
+- name: Deploy Promtail configuration
+  template:
+    src: promtail.yml.j2
+    dest: /etc/promtail/config.yml
+    owner: promtail
+    group: promtail
+    mode: '0644'
+  notify: Restart promtail
+
+- name: Deploy Promtail systemd service
+  template:
+    src: promtail.service.j2
+    dest: /etc/systemd/system/promtail.service
+    mode: '0644'
+  notify: Restart promtail
+
+- name: Enable and ensure node-exporter and promtail are running
+  systemd:
+    name: "{{ item }}"
+    enabled: yes
+    state: started
+    daemon_reload: yes
+  loop:
+    - prometheus-node-exporter
+    - promtail
