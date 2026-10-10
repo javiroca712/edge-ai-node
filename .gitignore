@@ -21,3 +21,13 @@ private/
 .env.*
 *.env
 !.env.example
+
+# Ignore kubeconfig and cluster credentials
+**/kubeconfig/
+*kubeconfig*
+
+# Ignore media artifacts and generated video outputs
+artifacts/
+*.webm
+*.mp4
+

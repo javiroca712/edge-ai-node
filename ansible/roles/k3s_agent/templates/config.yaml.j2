@@ -1,0 +1,10 @@
+# Declarative K3s Agent configuration with dynamically discovered hardware topology
+# Managed by Ansible - Zero Dark Matter
+server: "https://{{ k3s_server_host }}:{{ k3s_server_port }}"
+token: "{{ k3s_token }}"
+kubelet-arg:
+  - "fail-swap-on=false"
+node-label:
+{% for label in discovered_labels_list %}
+  - "{{ label }}"
+{% endfor %}

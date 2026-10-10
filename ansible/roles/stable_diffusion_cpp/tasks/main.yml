@@ -1,0 +1,93 @@
+---
+- name: Ensure required build and ROCm libraries are installed
+  apt:
+    name:
+      - build-essential
+      - cmake
+      - git
+      - libhipblas-dev
+      - librocsolver-dev
+      - librocblas-dev
+      - libgomp1
+    state: present
+    update_cache: yes
+
+- name: Check if sd-cli binary already exists
+  stat:
+    path: "{{ sd_cpp_dest }}/build/bin/sd-cli"
+  register: sd_cli_bin
+
+- name: Clone stable-diffusion.cpp repository
+  git:
+    repo: "{{ sd_cpp_repo }}"
+    dest: "{{ sd_cpp_dest }}"
+    recursive: yes
+    version: master
+    force: no
+  when: not sd_cli_bin.stat.exists
+
+- name: Patch RDNA2 Flash Attention bug in ggml submodule
+  replace:
+    path: "{{ sd_cpp_dest }}/ggml/src/ggml-cuda/fattn-common.cuh"
+    regexp: '^\s*GGML_ASSERT\(max_blocks_per_sm > 0\);'
+    replace: '    if (max_blocks_per_sm <= 0) { max_blocks_per_sm = 1; }'
+  when: not sd_cli_bin.stat.exists
+
+- name: Configure CMake build for stable-diffusion.cpp with HIPBLAS
+  command: >
+    cmake -B build
+    -DSD_HIPBLAS=ON
+    -DAMDGPU_TARGETS={{ sd_cpp_amdgpu_target }}
+  args:
+    chdir: "{{ sd_cpp_dest }}"
+  when: not sd_cli_bin.stat.exists
+
+- name: Compile sd-cli binary with Release optimization
+  command: cmake --build build --config Release -j{{ ansible_processor_vcpus | default(4) }}
+  args:
+    chdir: "{{ sd_cpp_dest }}"
+  when: not sd_cli_bin.stat.exists
+
+- name: Verify compiled sd-cli binary exists and is executable
+  file:
+    path: "{{ sd_cpp_dest }}/build/bin/sd-cli"
+    mode: "0755"
+    state: file
+
+- name: Ensure AnimateDiff models directory exists
+  file:
+    path: "{{ animatediff_dir }}"
+    state: directory
+    owner: ai-agent
+    group: ai-agent
+    mode: "0775"
+
+- name: Check if base SD 1.5 model exists
+  stat:
+    path: "{{ animatediff_dir }}/{{ sd_base_model_filename }}"
+  register: base_model_stat
+
+- name: Download base SD 1.5 model (Realistic Vision V6.0 B1)
+  get_url:
+    url: "{{ sd_base_model_url }}"
+    dest: "{{ animatediff_dir }}/{{ sd_base_model_filename }}"
+    mode: "0664"
+    owner: ai-agent
+    group: ai-agent
+    timeout: 600
+  when: not base_model_stat.stat.exists
+
+- name: Check if AnimateDiff motion module exists
+  stat:
+    path: "{{ animatediff_dir }}/{{ sd_motion_module_filename }}"
+  register: motion_module_stat
+
+- name: Download AnimateDiff v3 motion module
+  get_url:
+    url: "{{ sd_motion_module_url }}"
+    dest: "{{ animatediff_dir }}/{{ sd_motion_module_filename }}"
+    mode: "0664"
+    owner: ai-agent
+    group: ai-agent
+    timeout: 300
+  when: not motion_module_stat.stat.exists

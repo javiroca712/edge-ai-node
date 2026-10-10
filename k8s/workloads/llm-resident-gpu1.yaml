@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-resident-gpu1
+  namespace: ai-workloads
+  labels:
+    app.kubernetes.io/name: llm-resident
+    modality: text
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: llm-resident
+  template:
+    metadata:
+      labels:
+        app: llm-resident
+        modality: text
+        accelerator: gpu1-pcie-x4
+    spec:
+      nodeSelector:
+        node.kubernetes.io/role: worker
+      containers:
+      - name: llama-server
+        image: custom-llamacpp-rocm:latest
+        imagePullPolicy: IfNotPresent
+        command:
+          - /opt/llama.cpp/build/bin/llama-server
+          - -m
+          - /models/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf
+          - --port
+          - "8083"
+          - --host
+          - "0.0.0.0"
+          - -ngl
+          - "99"
+          - -c
+          - "8192"
+          - -np
+          - "2"
+        env:
+          - name: HSA_OVERRIDE_GFX_VERSION
+            value: "10.3.0"
+          - name: HIP_VISIBLE_DEVICES
+            value: "1"
+        securityContext:
+          privileged: true
+        resources:
+          limits:
+            memory: "2.0Gi"
+          requests:
+            memory: "1.0Gi"
+        ports:
+          - containerPort: 8083
+            name: http-inference
+        volumeMounts:
+          - name: models-storage
+            mountPath: /models
+            readOnly: true
+      volumes:
+        - name: models-storage
+          persistentVolumeClaim:
+            claimName: models-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-service
+  namespace: ai-workloads
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8083
+      targetPort: 8083
+      name: http-inference
+  selector:
+    app: llm-resident

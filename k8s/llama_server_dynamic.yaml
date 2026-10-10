@@ -1,0 +1,104 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llama-server-dynamic
+  labels:
+    app: llama-server
+    tier: inference-gateway
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: llama-server
+  template:
+    metadata:
+      labels:
+        app: llama-server
+    spec:
+      nodeSelector:
+        accelerator: amd-rocm
+      containers:
+      - name: llama-server
+        image: ubuntu:latest
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            amd.com/gpu: 1
+        securityContext:
+          capabilities:
+            add: ["SYS_PTRACE"]
+        ports:
+        - containerPort: 8083
+          hostPort: 8083
+        env:
+        - name: HSA_OVERRIDE_GFX_VERSION
+          value: "10.3.0"
+        - name: LD_LIBRARY_PATH
+          value: "/opt/llama.cpp/build/bin:/usr/lib/x86_64-linux-gnu"
+        command:
+        - /opt/llama.cpp/build/bin/llama-server
+        - -m
+        - /opt/ai-models/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf
+        - --host
+        - 0.0.0.0
+        - --port
+        - "8083"
+        - --metrics
+        - --n-gpu-layers
+        - "99"
+        - -c
+        - "16384"
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8083
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          failureThreshold: 40
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8083
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8083
+          periodSeconds: 15
+        volumeMounts:
+        - name: host-usr-lib
+          mountPath: /usr/lib/x86_64-linux-gnu
+          readOnly: true
+        - name: llama-bin
+          mountPath: /opt/llama.cpp
+          readOnly: true
+        - name: ai-models
+          mountPath: /opt/ai-models
+          readOnly: true
+      volumes:
+      - name: host-usr-lib
+        hostPath:
+          path: /usr/lib/x86_64-linux-gnu
+      - name: llama-bin
+        hostPath:
+          path: /opt/llama.cpp
+      - name: ai-models
+        hostPath:
+          path: /opt/ai-models
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llama-api
+  labels:
+    app: llama-server
+spec:
+  type: ClusterIP
+  selector:
+    app: llama-server
+  ports:
+  - name: http-inference
+    port: 8083
+    targetPort: 8083

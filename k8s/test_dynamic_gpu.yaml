@@ -1,0 +1,43 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: test-dynamic-gpu
+spec:
+  ttlSecondsAfterFinished: 120
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: sd-device-test
+        image: ubuntu:latest
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          privileged: true
+        resources:
+          limits:
+            amd.com/gpu: 1
+        env:
+        - name: HSA_OVERRIDE_GFX_VERSION
+          value: "10.3.0"
+        - name: LD_LIBRARY_PATH
+          value: "/usr/lib/x86_64-linux-gnu"
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          echo "=== DYNAMIC K8S GPU ALLOCATION ==="
+          env | grep -E 'HIP|ROCR|GPU' || true
+          ls -l /dev/dri /dev/kfd
+          /opt/stable-diffusion.cpp/build/bin/sd-cli --list-devices
+        volumeMounts:
+        - name: host-usr-lib
+          mountPath: /usr/lib/x86_64-linux-gnu
+          readOnly: true
+        - name: sd-cpp
+          mountPath: /opt/stable-diffusion.cpp
+          readOnly: true
+      volumes:
+      - name: host-usr-lib
+        hostPath: { path: /usr/lib/x86_64-linux-gnu }
+      - name: sd-cpp
+        hostPath: { path: /opt/stable-diffusion.cpp }

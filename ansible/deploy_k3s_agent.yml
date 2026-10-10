@@ -1,0 +1,9 @@
+---
+- name: Deploy Lightweight K3s Agent on Edge Node (Option B)
+  hosts: edge_nodes
+  become: yes
+  roles:
+    - role: k3s_agent
+      vars:
+        k3s_server_host: "{{ k3s_override_host | default('100.112.218.62') }}"
+        k3s_token: "{{ k3s_override_token | default('edge-ai-node-secret-token-2026') }}"

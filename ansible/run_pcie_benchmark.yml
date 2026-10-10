@@ -1,0 +1,37 @@
+---
+- name: Run PCIe Asymmetry Benchmark on Edge Node
+  hosts: edge_nodes
+  become: yes
+  tasks:
+    - name: Create remote benchmark directory
+      file:
+        path: /opt/benchmarks
+        state: directory
+        mode: '0755'
+
+    - name: Copy benchmark script to edge node
+      copy:
+        src: ../scripts/benchmark_pcie_asymmetry.sh
+        dest: /opt/benchmarks/benchmark_pcie_asymmetry.sh
+        mode: '0755'
+
+    - name: Execute PCIe asymmetry benchmark (identical payloads)
+      command: /opt/benchmarks/benchmark_pcie_asymmetry.sh
+      register: bench_output
+
+    - name: Display benchmark execution summary
+      debug:
+        var: bench_output.stdout_lines
+
+    - name: Fetch benchmark results back to laptop
+      fetch:
+        src: "/tmp/pcie_benchmark_results/{{ item }}"
+        dest: "../tests/results/{{ item }}"
+        flat: yes
+      loop:
+        - load_gpu0.txt
+        - load_gpu1.txt
+        - bench_gpu0.json
+        - bench_gpu1.json
+        - dma_gpu0.txt
+        - dma_gpu1.txt

@@ -1,0 +1,45 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: test-unprivileged-gpu
+spec:
+  ttlSecondsAfterFinished: 120
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        accelerator: amd-rocm
+      containers:
+      - name: sd-device-test
+        image: ubuntu:latest
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            amd.com/gpu: 1
+        securityContext:
+          capabilities:
+            add: ["SYS_PTRACE"]
+        env:
+        - name: HSA_OVERRIDE_GFX_VERSION
+          value: "10.3.0"
+        - name: LD_LIBRARY_PATH
+          value: "/usr/lib/x86_64-linux-gnu"
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          echo "=== UNPRIVILEGED DYNAMIC GPU ALLOCATION ==="
+          ls -l /dev/dri /dev/kfd
+          /opt/stable-diffusion.cpp/build/bin/sd-cli --list-devices
+        volumeMounts:
+        - name: host-usr-lib
+          mountPath: /usr/lib/x86_64-linux-gnu
+          readOnly: true
+        - name: sd-cpp
+          mountPath: /opt/stable-diffusion.cpp
+          readOnly: true
+      volumes:
+      - name: host-usr-lib
+        hostPath: { path: /usr/lib/x86_64-linux-gnu }
+      - name: sd-cpp
+        hostPath: { path: /opt/stable-diffusion.cpp }

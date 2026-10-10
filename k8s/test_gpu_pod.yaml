@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-gpu-access
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: ubuntu01
+  restartPolicy: Never
+  containers:
+  - name: test-gpu
+    image: ubuntu:latest
+    imagePullPolicy: IfNotPresent
+    securityContext:
+      privileged: true
+    env:
+    - name: HSA_OVERRIDE_GFX_VERSION
+      value: "10.3.0"
+    - name: LD_LIBRARY_PATH
+      value: "/usr/lib/x86_64-linux-gnu"
+    command: ["/bin/bash", "-c"]
+    args:
+    - |
+      echo "=== Inside Container Test ==="
+      ls -l /dev/kfd /dev/dri
+      /opt/stable-diffusion.cpp/build/bin/sd-cli --list-devices
+    volumeMounts:
+    - name: dev-kfd
+      mountPath: /dev/kfd
+    - name: dev-dri
+      mountPath: /dev/dri
+    - name: host-usr-lib
+      mountPath: /usr/lib/x86_64-linux-gnu
+      readOnly: true
+    - name: sd-cpp
+      mountPath: /opt/stable-diffusion.cpp
+      readOnly: true
+  volumes:
+  - name: dev-kfd
+    hostPath:
+      path: /dev/kfd
+  - name: dev-dri
+    hostPath:
+      path: /dev/dri
+  - name: host-usr-lib
+    hostPath:
+      path: /usr/lib/x86_64-linux-gnu
+  - name: sd-cpp
+    hostPath:
+      path: /opt/stable-diffusion.cpp

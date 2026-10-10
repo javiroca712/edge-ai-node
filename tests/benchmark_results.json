@@ -1,0 +1,41 @@
+﻿[
+    {
+        "TestName":  "Short Payload (Chat)",
+        "PromptTokens":  18,
+        "GenTokens":  80,
+        "GPU0_PP_Speed":  "125.81 t/s",
+        "GPU1_PP_Speed":  "180.51 t/s",
+        "PP_DeltaPct":  "-30.30 %",
+        "GPU0_TG_Speed":  "53.10 t/s",
+        "GPU1_TG_Speed":  "53.36 t/s",
+        "TG_DeltaPct":  "-0.49 %",
+        "GPU0_Total_ms":  "2102 ms",
+        "GPU1_Total_ms":  "1946 ms"
+    },
+    {
+        "TestName":  "Medium Payload (500 tokens)",
+        "PromptTokens":  171,
+        "GenTokens":  100,
+        "GPU0_PP_Speed":  "498.65 t/s",
+        "GPU1_PP_Speed":  "787.36 t/s",
+        "PP_DeltaPct":  "-36.67 %",
+        "GPU0_TG_Speed":  "53.11 t/s",
+        "GPU1_TG_Speed":  "52.79 t/s",
+        "TG_DeltaPct":  "0.61 %",
+        "GPU0_Total_ms":  "2604 ms",
+        "GPU1_Total_ms":  "2480 ms"
+    },
+    {
+        "TestName":  "Heavy Payload (1500 tokens)",
+        "PromptTokens":  358,
+        "GenTokens":  100,
+        "GPU0_PP_Speed":  "814.23 t/s",
+        "GPU1_PP_Speed":  "849.15 t/s",
+        "PP_DeltaPct":  "-4.11 %",
+        "GPU0_TG_Speed":  "54.04 t/s",
+        "GPU1_TG_Speed":  "53.36 t/s",
+        "TG_DeltaPct":  "1.27 %",
+        "GPU0_Total_ms":  "2557 ms",
+        "GPU1_Total_ms":  "2466 ms"
+    }
+]

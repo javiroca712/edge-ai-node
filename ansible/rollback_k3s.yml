@@ -1,0 +1,65 @@
+---
+- name: Emergency Rollback - Revert Edge AI Node to Pure Native State
+  hosts: edge_nodes
+  become: yes
+  tasks:
+    - name: Check if k3s agent uninstaller exists
+      stat:
+        path: /usr/local/bin/k3s-agent-uninstall.sh
+      register: k3s_uninstaller
+
+    - name: Execute official k3s agent uninstaller
+      command: /usr/local/bin/k3s-agent-uninstall.sh
+      when: k3s_uninstaller.stat.exists
+
+    - name: Remove lingering rancher and cni configuration directories
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/rancher
+        - /var/lib/rancher
+        - /etc/cni/net.d
+        - /run/k3s
+        - /run/flannel
+
+    - name: Re-enable and restart native llama-api replica systemd daemons
+      systemd:
+        name: "llama-api-{{ item }}.service"
+        state: restarted
+        enabled: yes
+        daemon_reload: yes
+      loop:
+        - 0
+        - 1
+
+    - name: Ensure observability agents are active
+      systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop:
+        - prometheus-node-exporter
+        - promtail
+
+    - name: Verify health of GPU 0 native inference endpoint (Port 8082)
+      uri:
+        url: http://127.0.0.1:8082/health
+        status_code: 200
+      register: health_gpu0
+      retries: 5
+      delay: 3
+      until: health_gpu0.status == 200
+
+    - name: Verify health of GPU 1 native inference endpoint (Port 8083)
+      uri:
+        url: http://127.0.0.1:8083/health
+        status_code: 200
+      register: health_gpu1
+      retries: 5
+      delay: 3
+      until: health_gpu1.status == 200
+
+    - name: Log successful restoration
+      debug:
+        msg: "Rollback complete. k3s-agent cleanly uninstalled. Native replica services on ports 8082 and 8083 verified healthy."

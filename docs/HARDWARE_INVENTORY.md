@@ -18,7 +18,7 @@ This document serves as the verified source of truth for the edge AI node's phys
 *   **Manufacturer:** ASUSTeK COMPUTER INC.
 *   **Model:** ROG STRIX B450-F GAMING II (Rev 1.xx)
 *   **BIOS/Firmware:** SMBIOS 3.2.0
-*   **PCIe Bottleneck:** The motherboard chipset does not support true x8/x8 bifurcation. The primary slot operates at x16 (or x8), but the secondary slot routes through the chipset at **PCIe 3.0 x4**. This physical reality breaks Peer-to-Peer (P2P) GPU memory transfers, enforcing the Replica Parallelism architecture.
+*   **PCIe Topology & Bifurcation:** Live kernel inspection (`lspci -tv` and `LnkSta`) reveals that both GPU slots connect directly to the Ryzen CPU Root Complex (`00:03.1` and `00:03.2`): GPU 0 negotiates at **PCIe 3.0 x8** (~7.88 GB/s) and GPU 1 negotiates at **PCIe 3.0 x4** (~3.94 GB/s). While neither routes through the B450 chipset, the lack of symmetrical x8/x8 bifurcation and hardware P2P DMA breaks Pipeline Parallelism, enforcing independent Replica and Multi-Modal workload separation.
 *   **Thermal Monitoring:** ASUS WMI Super I/O driver (`asus-wmi-sensors`) installed via DKMS to bypass false 216°C readings that trigger CPU throttling down to 800MHz.
 
 ## 3. Storage

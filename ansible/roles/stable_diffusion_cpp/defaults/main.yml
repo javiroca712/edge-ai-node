@@ -1,0 +1,14 @@
+---
+sd_cpp_repo: "https://github.com/leejet/stable-diffusion.cpp"
+sd_cpp_dest: "/opt/stable-diffusion.cpp"
+sd_cpp_amdgpu_target: "gfx1030"
+
+models_base_dir: "/opt/ai-models"
+animatediff_dir: "{{ models_base_dir }}/animatediff"
+
+# Model URLs
+sd_base_model_url: "https://huggingface.co/SG161222/Realistic_Vision_V6.0_B1_noVAE/resolve/main/Realistic_Vision_V6.0_NV_B1_fp16.safetensors"
+sd_base_model_filename: "realisticVisionV60B1.safetensors"
+
+sd_motion_module_url: "https://huggingface.co/guoyww/animatediff/resolve/main/mm_sd15_v3.safetensors"
+sd_motion_module_filename: "mm_sd15_v3.safetensors"

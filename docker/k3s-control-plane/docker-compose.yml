@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  k3s-control-plane:
+    image: rancher/k3s:v1.31.5-k3s1
+    container_name: k3s-control-plane
+    command:
+      - server
+      - --tls-san=${LAPTOP_TAILSCALE_IP:-100.112.218.62}
+      - --tls-san=127.0.0.1
+      - --tls-san=localhost
+      - --disable=traefik
+      - --disable=servicelb
+      - --disable=local-storage
+      - --node-taint=CriticalAddonsOnly=true:NoSchedule
+    privileged: true
+    environment:
+      - K3S_TOKEN=${K3S_TOKEN:-edge-ai-node-secret-token-2026}
+      - K3S_KUBECONFIG_OUTPUT=/output/kubeconfig.yaml
+      - K3S_KUBECONFIG_MODE=666
+    volumes:
+      - k3s-server-data:/var/lib/rancher/k3s
+      - ./kubeconfig:/output
+    ports:
+      - "6443:6443"
+    restart: unless-stopped
+
+volumes:
+  k3s-server-data:

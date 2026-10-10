@@ -1,0 +1,101 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: video-gen-gpu1-x4
+  labels:
+    app: video-gen
+    target-gpu: gpu1-x4
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: video-gen
+        target-gpu: gpu1-x4
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: ubuntu01
+        gpu.amd.com/slot1.bus: pcie-3.0-x4
+      restartPolicy: Never
+      containers:
+      - name: sd-video-runner
+        image: ubuntu:latest
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          privileged: true
+        env:
+        - name: HSA_OVERRIDE_GFX_VERSION
+          value: "10.3.0"
+        - name: HIP_VISIBLE_DEVICES
+          value: "1"
+        - name: LD_LIBRARY_PATH
+          value: "/usr/lib/x86_64-linux-gnu"
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          set -euo pipefail
+          echo "=========================================================="
+          echo "=== K3S CONTAINERIZED VIDEO GENERATION: GPU 1 (PCIe x4) ==="
+          echo "Date: $(date -u)"
+          echo "Pod: $HOSTNAME"
+          echo "=========================================================="
+          
+          OUT_VIDEO="/opt/ai-models/animatediff/k8s_output_eagle_gpu1.webm"
+          rm -f "$OUT_VIDEO"
+          
+          START_TIME=$(date +%s%N)
+          
+          /opt/stable-diffusion.cpp/build/bin/sd-cli -M vid_gen \
+            --model /opt/ai-models/animatediff/realisticVisionV60B1.safetensors \
+            --motion-module /opt/ai-models/animatediff/mm_sd15_v3.safetensors \
+            --diffusion-fa \
+            --mmap \
+            -p "a majestic eagle soaring over snow-covered mountain peaks at sunset, cinematic 8k resolution, dramatic lighting, photorealistic" \
+            -n "deformed, blurry, bad anatomy, bad quality, artifacts, watermark" \
+            -H 512 -W 512 \
+            --video-frames 16 \
+            --fps 8 \
+            --steps 15 \
+            --cfg-scale 7.5 \
+            --sampling-method euler_a \
+            --scheduler discrete \
+            -s 42 \
+            -o "$OUT_VIDEO"
+            
+          END_TIME=$(date +%s%N)
+          DURATION_SEC=$(awk "BEGIN {print ($END_TIME - $START_TIME) / 1000000000}")
+          
+          echo "=========================================================="
+          echo "=== CONTAINER INFERENCE COMPLETED IN: ${DURATION_SEC} s ==="
+          ls -lh "$OUT_VIDEO"
+          echo "=========================================================="
+        volumeMounts:
+        - name: dev-kfd
+          mountPath: /dev/kfd
+        - name: dev-dri
+          mountPath: /dev/dri
+        - name: host-usr-lib
+          mountPath: /usr/lib/x86_64-linux-gnu
+          readOnly: true
+        - name: sd-cpp
+          mountPath: /opt/stable-diffusion.cpp
+          readOnly: true
+        - name: ai-models
+          mountPath: /opt/ai-models
+      volumes:
+      - name: dev-kfd
+        hostPath:
+          path: /dev/kfd
+      - name: dev-dri
+        hostPath:
+          path: /dev/dri
+      - name: host-usr-lib
+        hostPath:
+          path: /usr/lib/x86_64-linux-gnu
+      - name: sd-cpp
+        hostPath:
+          path: /opt/stable-diffusion.cpp
+      - name: ai-models
+        hostPath:
+          path: /opt/ai-models

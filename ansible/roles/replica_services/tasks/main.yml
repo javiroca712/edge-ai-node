@@ -1,25 +1,41 @@
 ---
-- name: Stop monolithic llama-api service if it exists
-  systemd:
-    name: llama-api.service
-    state: stopped
-    enabled: no
-  ignore_errors: yes
+- name: Handle systemd replica services when inference_mode is systemd
+  block:
+    - name: Stop monolithic llama-api service if it exists
+      systemd:
+        name: llama-api.service
+        state: stopped
+        enabled: no
+      ignore_errors: yes
 
-- name: Generate replica systemd services
-  template:
-    src: llama-api.service.j2
-    dest: /etc/systemd/system/llama-api-{{ item.gpu_idx }}.service
-  loop:
-    - { gpu_idx: 0, port: 8082 }
-    - { gpu_idx: 1, port: 8083 }
+    - name: Generate replica systemd services
+      template:
+        src: llama-api.service.j2
+        dest: /etc/systemd/system/llama-api-{{ item.gpu_idx }}.service
+      loop:
+        - { gpu_idx: 0, port: 8082 }
+        - { gpu_idx: 1, port: 8083 }
 
-- name: Enable and start replica services
-  systemd:
-    name: llama-api-{{ item.gpu_idx }}.service
-    enabled: yes
-    state: restarted
-    daemon_reload: yes
-  loop:
-    - { gpu_idx: 0, port: 8082 }
-    - { gpu_idx: 1, port: 8083 }
+    - name: Enable and start replica services
+      systemd:
+        name: llama-api-{{ item.gpu_idx }}.service
+        enabled: yes
+        state: restarted
+        daemon_reload: yes
+      loop:
+        - { gpu_idx: 0, port: 8082 }
+        - { gpu_idx: 1, port: 8083 }
+  when: (inference_mode | default('k8s')) == 'systemd'
+
+- name: Disable bare-metal systemd services when running in K3s containerized mode
+  block:
+    - name: Stop and disable bare-metal llama-api services
+      systemd:
+        name: "llama-api-{{ item.gpu_idx }}.service"
+        state: stopped
+        enabled: no
+      loop:
+        - { gpu_idx: 0 }
+        - { gpu_idx: 1 }
+      ignore_errors: yes
+  when: (inference_mode | default('k8s')) == 'k8s'

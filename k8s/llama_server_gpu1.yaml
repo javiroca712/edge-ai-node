@@ -1,0 +1,115 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llama-server-gpu1
+  labels:
+    app: llama-server
+    target-gpu: gpu1-x4
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: llama-server
+      target-gpu: gpu1-x4
+  template:
+    metadata:
+      labels:
+        app: llama-server
+        target-gpu: gpu1-x4
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: ubuntu01
+        gpu.amd.com/slot1.bus: pcie-3.0-x4
+      containers:
+      - name: llama-server
+        image: ubuntu:latest
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          privileged: true
+        ports:
+        - containerPort: 8083
+          hostPort: 8083
+        env:
+        - name: HSA_OVERRIDE_GFX_VERSION
+          value: "10.3.0"
+        - name: HIP_VISIBLE_DEVICES
+          value: "1"
+        - name: LD_LIBRARY_PATH
+          value: "/opt/llama.cpp/build/bin:/usr/lib/x86_64-linux-gnu"
+        command:
+        - /opt/llama.cpp/build/bin/llama-server
+        - -m
+        - /opt/ai-models/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf
+        - --host
+        - 0.0.0.0
+        - --port
+        - "8083"
+        - --metrics
+        - --n-gpu-layers
+        - "99"
+        - -c
+        - "16384"
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8083
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          failureThreshold: 40
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8083
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8083
+          periodSeconds: 15
+        volumeMounts:
+        - name: dev-kfd
+          mountPath: /dev/kfd
+        - name: dev-dri
+          mountPath: /dev/dri
+        - name: host-usr-lib
+          mountPath: /usr/lib/x86_64-linux-gnu
+          readOnly: true
+        - name: llama-bin
+          mountPath: /opt/llama.cpp
+          readOnly: true
+        - name: ai-models
+          mountPath: /opt/ai-models
+          readOnly: true
+      volumes:
+      - name: dev-kfd
+        hostPath:
+          path: /dev/kfd
+      - name: dev-dri
+        hostPath:
+          path: /dev/dri
+      - name: host-usr-lib
+        hostPath:
+          path: /usr/lib/x86_64-linux-gnu
+      - name: llama-bin
+        hostPath:
+          path: /opt/llama.cpp
+      - name: ai-models
+        hostPath:
+          path: /opt/ai-models
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llama-api-gpu1
+  labels:
+    app: llama-server
+    target-gpu: gpu1-x4
+spec:
+  type: ClusterIP
+  selector:
+    app: llama-server
+    target-gpu: gpu1-x4
+  ports:
+  - name: http-inference
+    port: 8083
+    targetPort: 8083

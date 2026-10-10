@@ -54,11 +54,9 @@
   when: not swap_file.stat.exists or swap_file.stat.size < 16000000000
 
 - name: Ensure swap entry is present in /etc/fstab
-  mount:
-    path: none
-    src: /swap.img
-    fstype: swap
-    opts: sw
+  lineinfile:
+    path: /etc/fstab
+    line: '/swap.img none swap sw 0 0'
     state: present
 
 - name: Check if asus-wmi-sensors DKMS module is installed
@@ -82,9 +80,7 @@
   when: dkms_asus_check.stdout == ""
 
 - name: Load asus-wmi-sensors kernel module
-  modprobe:
-    name: asus-wmi-sensors
-    state: present
+  command: modprobe asus-wmi-sensors
   ignore_errors: yes
 
 - name: Probe for hardware sensors

@@ -1,10 +1,16 @@
 ---
-- name: Provision Edge AI Node
+- name: Provision Dual-GPU Edge AI Node (LLM + Video Generation + Hybrid K3s)
   hosts: edge_nodes
   become: yes
+  vars:
+    inference_mode: "k8s"
+    k3s_server_host: "{{ k3s_override_host | default('100.112.218.62') }}"
+    k3s_token: "{{ k3s_override_token | default('edge-ai-node-secret-token-2026') }}"
   roles:
     - os_tuning
     - amd_rocm
     - llamacpp_build
+    - stable_diffusion_cpp
+    - k3s_agent
     - replica_services
     - observability

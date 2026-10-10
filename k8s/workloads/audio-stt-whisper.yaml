@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audio-whisper-stt
+  namespace: ai-workloads
+  labels:
+    app.kubernetes.io/name: audio-whisper
+    modality: audio-stt
+spec:
+  replicas: 0 # Dynamic or scale-to-1
+  selector:
+    matchLabels:
+      app: audio-whisper
+  template:
+    metadata:
+      labels:
+        app: audio-whisper
+        modality: audio-stt
+    spec:
+      nodeSelector:
+        node.kubernetes.io/role: worker
+      containers:
+      - name: whisper-server
+        image: custom-whisper-rocm:latest
+        imagePullPolicy: IfNotPresent
+        command:
+          - /opt/whisper.cpp/build/bin/whisper-server
+          - -m
+          - /models/ggml-large-v3-turbo.bin
+          - --port
+          - "8084"
+          - --host
+          - "0.0.0.0"
+        env:
+          - name: HSA_OVERRIDE_GFX_VERSION
+            value: "10.3.0"
+        securityContext:
+          privileged: true
+        resources:
+          limits:
+            memory: "1.5Gi"
+        ports:
+          - containerPort: 8084
+            name: http-api
+        volumeMounts:
+          - name: models-storage
+            mountPath: /models
+            readOnly: true
+      volumes:
+        - name: models-storage
+          persistentVolumeClaim:
+            claimName: models-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: whisper-service
+  namespace: ai-workloads
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8084
+      targetPort: 8084
+      name: http-api
+  selector:
+    app: audio-whisper

@@ -45,3 +45,19 @@ This document summarizes the technical challenges encountered while building the
 ## 9. Load Balancing Architecture: LiteLLM vs HAProxy
 - **Decision:** Deployed **LiteLLM** on the local client machine instead of the edge server.
 - **Why:** LiteLLM intercepts requests exactly like an OpenAI endpoint and tracks queue depths using a `least-busy` routing algorithm. Offloading this layer preserves 100% of the edge node's tight 4GB RAM for inference.
+
+## 10. Multi-Modal Orchestration: Hybrid K3s Architecture
+- **Challenge:** Scaling beyond text LLMs to video generation (e.g. Wan2.1 / LTX-Video) and other modalities requires dynamic model loading and unloading. A full Kubernetes control plane running locally on the edge node consumes ~1GB of RAM—eating 30% of the node's tight 3.2GB usable host memory and triggering severe swap thrashing.
+- **Decision:** Adopted **Hybrid Kubernetes (Option B)**:
+  - The **K3s Control Plane** runs in a lightweight Docker container on the client dev laptop, tainted `CriticalAddonsOnly=true:NoSchedule`.
+  - The **Edge Node** runs only `k3s-agent` with `--kubelet-arg=fail-swap-on=false` to tolerate the 16GB swap file.
+  - Custom node labels (`gpu.amd.com/slot0.bus=pcie-3.0-x16` and `gpu.amd.com/slot1.bus=pcie-3.0-x4`) inform scheduling so that dynamic heavy workloads (Video Generation) schedule on GPU 0 and resident text LLMs pin to GPU 1.
+  - An automated Ansible rollback playbook (`ansible/rollback_k3s.yml`) provides instant recovery to native systemd daemons.
+
+## 11. Pattern C: Dynamic GPU Scheduling + Dynamic Resource Allocation (DRA)
+- **Challenge:** Hardcoding physical slot indices (`HIP_VISIBLE_DEVICES=0` vs `1`) and node hostnames works for a single identical node, but breaks immediately when scaling to a heterogeneous cluster where nodes may possess different numbers of GPUs, varying PCIe link widths (x16, x8, x4), or non-identical VRAM pools.
+- **Architecture:** Implemented **Pattern C (Dynamic Resource Allocation with Unified AI Gateway)** across three tightly integrated tiers:
+  1. **Tier 1 - Unified AI Gateway (LiteLLM Router):** Clients and consumer applications (Open WebUI, SDKs) query a single ingress gateway (`http://localhost:4000/v1`). The gateway dynamically routes and load-balances across active backend inference engines, shielding clients from cluster topology, node IPs, and card indices.
+  2. **Tier 2 - Automated Hardware Introspection & Discovery:** Created `/usr/local/bin/discover_node_hardware.sh` to dynamically inspect GPUs, VRAM capacity, GFX architecture, and parent PCIe root port link widths directly via `sysfs`. Node labels (`accelerator=amd-rocm`, `gpu.amd.com/has-fastbus=true`, `gpu.amd.com/vram-gib=12`, `gpu.amd.com/arch=gfx1031`) are declaratively pushed to `/etc/rancher/k3s/config.yaml` via Ansible with zero manual configuration.
+  3. **Tier 3 - Dynamic GPU Scheduling & On-Demand Lifecycle:** Deployed the official ROCm device plugin (`rocm/k8s-device-plugin`) as a DaemonSet targeting `accelerator: amd-rocm`, advertising allocatable `amd.com/gpu: 2`. Workloads declare standard `resources.limits: amd.com/gpu: 1` with soft node affinity (`preferredDuringSchedulingIgnoredDuringExecution` for `fastbus`). LLM servers scale on-demand between 0 and 1 replicas, instantly reclaiming and reallocating GPU VRAM across text and generative video batch jobs without oversubscription or crashes.
+

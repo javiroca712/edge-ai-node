@@ -2,13 +2,13 @@ model_list:
   - model_name: llama3
     litellm_params:
       model: openai/Meta-Llama-3.1-8B-Instruct-Q4_K_M
-      api_base: http://edge-node:8082/v1
-      api_key: "dummy"
-  - model_name: llama3
-    litellm_params:
-      model: openai/Meta-Llama-3.1-8B-Instruct-Q4_K_M
       api_base: http://edge-node:8083/v1
       api_key: "dummy"
+    model_info:
+      id: "edge-node-k3s-llama-gpu1"
 
 router_settings:
   routing_strategy: least-busy
+  num_retries: 3
+  timeout: 60
+  enable_pre_call_checks: false

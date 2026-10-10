@@ -1,0 +1,15 @@
+---
+# Defaults for k3s_agent role
+k3s_server_host: "100.112.218.62"
+k3s_server_port: 6443
+k3s_token: "edge-ai-node-secret-token-2026"
+k3s_version: "v1.31.5+k3s1"
+
+# Edge node labels specifying the physical PCIe asymmetry for intelligent pod scheduling
+k3s_node_labels:
+  - "node.kubernetes.io/role=worker"
+  - "accelerator=amd-rocm"
+  - "gpu.amd.com/slot0.bus=pcie-3.0-x16"
+  - "gpu.amd.com/slot0.role=dynamic-heavy"
+  - "gpu.amd.com/slot1.bus=pcie-3.0-x4"
+  - "gpu.amd.com/slot1.role=resident-llm"
