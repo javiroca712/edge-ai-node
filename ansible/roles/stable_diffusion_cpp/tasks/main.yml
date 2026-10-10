@@ -1,10 +1,12 @@
 ---
-- name: Ensure required build and ROCm libraries are installed
+- name: Ensure required build, multimedia, and ROCm libraries are installed
   apt:
     name:
       - build-essential
       - cmake
       - git
+      - ffmpeg
+      - aria2
       - libhipblas-dev
       - librocsolver-dev
       - librocblas-dev
@@ -77,6 +79,21 @@
     timeout: 600
   when: not base_model_stat.stat.exists
 
+- name: Check if ToonYou Beta6 cartoon model exists
+  stat:
+    path: "{{ animatediff_dir }}/toonyou_beta6.safetensors"
+  register: toonyou_stat
+
+- name: Download ToonYou Beta6 cartoon model for stylized animation
+  get_url:
+    url: "https://huggingface.co/uwg/modelz_base/resolve/main/toonyou_beta6.safetensors"
+    dest: "{{ animatediff_dir }}/toonyou_beta6.safetensors"
+    mode: "0664"
+    owner: ai-agent
+    group: ai-agent
+    timeout: 900
+  when: not toonyou_stat.stat.exists
+
 - name: Check if AnimateDiff motion module exists
   stat:
     path: "{{ animatediff_dir }}/{{ sd_motion_module_filename }}"
@@ -91,3 +108,46 @@
     group: ai-agent
     timeout: 300
   when: not motion_module_stat.stat.exists
+
+- name: Ensure Piper TTS directory exists
+  file:
+    path: /opt/piper/voices
+    state: directory
+    owner: ai-agent
+    group: ai-agent
+    mode: "0755"
+
+- name: Check if Piper binary exists
+  stat:
+    path: /opt/piper/piper/piper
+  register: piper_bin
+
+- name: Download and extract Piper TTS binary
+  unarchive:
+    src: "https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_linux_x86_64.tar.gz"
+    dest: /opt/piper
+    remote_src: yes
+    owner: ai-agent
+    group: ai-agent
+  when: not piper_bin.stat.exists
+
+- name: Download Piper cartoon voices (Bryce & Lessac)
+  get_url:
+    url: "{{ item.url }}"
+    dest: "/opt/piper/voices/{{ item.filename }}"
+    mode: "0644"
+    owner: ai-agent
+    group: ai-agent
+  loop:
+    - { url: "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/bryce/medium/en_US-bryce-medium.onnx", filename: "en_US-bryce-medium.onnx" }
+    - { url: "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/bryce/medium/en_US-bryce-medium.onnx.json", filename: "en_US-bryce-medium.onnx.json" }
+    - { url: "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx", filename: "en_US-lessac-medium.onnx" }
+    - { url: "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json", filename: "en_US-lessac-medium.onnx.json" }
+
+- name: Deploy dual-GPU 30s cartoon production script
+  copy:
+    src: ../../../scripts/produce_30s_cartoon.sh
+    dest: /usr/local/bin/produce_30s_cartoon.sh
+    mode: "0755"
+    owner: root
+    group: root
