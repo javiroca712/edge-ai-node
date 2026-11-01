@@ -1,0 +1,171 @@
+# ==============================================================================
+# Containerized Stable Diffusion Video Generation Job (ROCm GPU)
+# ==============================================================================
+# Renders 512x512 raw clips using AnimateDiff v3 motion module + ToonYou Beta6.
+# Output: Writes directly into /var/lib/ai-artifacts/scratch/${TASK_ID}/
+#
+# Resources:
+#   - Requests 1x AMD GPU (amd.com/gpu: 1)
+#   - Soft-affinity for PCIe 3.0 x16 bus (gpu.amd.com/has-fastbus)
+# Volume Mounts:
+#   - /opt/ai-models        (ai-models-pvc, Read-Only)
+#   - /var/lib/ai-artifacts (ai-artifacts-pvc, Read-Write)
+# ==============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: sd-diffusion-job
+  labels:
+    app: sd-diffusion
+    scheduling: dynamic-gpu
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: sd-diffusion
+        scheduling: dynamic-gpu
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        accelerator: amd-rocm
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: gpu.amd.com/has-fastbus
+                operator: In
+                values: ["true"]
+      containers:
+      - name: sd-video-runner
+        image: ubuntu:latest
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            amd.com/gpu: 1
+        securityContext:
+          capabilities:
+            add: ["SYS_PTRACE"]
+        env:
+        - name: HSA_OVERRIDE_GFX_VERSION
+          value: "10.3.0"
+        - name: LD_LIBRARY_PATH
+          value: "/usr/lib/x86_64-linux-gnu"
+        - name: TASK_ID
+          value: "task_latest"
+        - name: SHOT_ID
+          value: "all"
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          set -euo pipefail
+          echo "=========================================================="
+          echo "=== CONTAINERIZED ANIMATEDIFF VIDEO GENERATION (ROCm) ==="
+          echo "Task ID: ${TASK_ID}"
+          echo "Shot ID: ${SHOT_ID}"
+          echo "Date: $(date -u)"
+          echo "Pod: $HOSTNAME"
+          echo "=========================================================="
+
+          SCRATCH_DIR="/var/lib/ai-artifacts/scratch/${TASK_ID}"
+          mkdir -p "$SCRATCH_DIR"
+
+          MODEL_DIR="/opt/ai-models/diffusion"
+          if [ ! -d "$MODEL_DIR" ]; then
+            MODEL_DIR="/opt/ai-models/animatediff"
+          fi
+
+          MODEL_PATH="${MODEL_DIR}/toonyou_beta6.safetensors"
+          if [ ! -f "$MODEL_PATH" ]; then
+            MODEL_PATH="${MODEL_DIR}/realisticVisionV60B1.safetensors"
+          fi
+          MOTION_MODULE="${MODEL_DIR}/mm_sd15_v3.safetensors"
+          SD_BIN="/opt/stable-diffusion.cpp/build/bin/sd-cli"
+
+          STYLE="masterpiece, best quality, cartoon animation style, vibrant colors, 3D Pixar style, clean lines, expressive, cinematic lighting"
+          NEG_PROMPT="photorealistic, real life photo, deformed, distorted, blurry, bad anatomy, bad quality, artifacts, watermark, lowres, ugly"
+
+          PROMPTS=(
+            "wide angle view, high-tech cartoon launchpad at sunset, cute small round retro blue robot with glowing cyan eyes standing next to sleek miniature silver rocket, golden clouds"
+            "close-up portrait, cheerful young girl pilot, aviator goggles on forehead, bright yellow jacket, short brown bob hair, warm confident smile, mission control screens background"
+            "medium shot, cute small round retro blue robot with glowing cyan eyes pulling a glowing retro control lever, colorful energy sparks, flashing dashboard lights, happy excited"
+            "cinematic low angle, sleek miniature silver spaceship launching from platform, bright rainbow booster exhaust flame, billowing clouds of fluffy cartoon smoke, launch blastoff"
+            "tracking shot, sleek miniature silver rocket soaring upwards through golden clouds, beautiful orange sunset sky, dynamic motion trails"
+            "close-up, cute small round retro blue robot waving happily through glass spaceship dome window, joyful star-shaped glowing eyes, spaceship interior"
+            "cinematic wide view, sleek spaceship entering twilight space orbit above glowing cartoon planet Earth, sparkling stars, vibrant aurora borealis atmosphere"
+            "wide cinematic view, glowing cartoon star constellation forming in deep starfield, celestial cosmic glow, title card background, peaceful beautiful space"
+          )
+
+          render_single_shot() {
+            local S_NUM="$1"
+            local P_IDX=$((S_NUM - 1))
+            local PROMPT="${PROMPTS[$P_IDX]}"
+            local OUT_FILE="${SCRATCH_DIR}/shot_${S_NUM}_raw.webm"
+
+            if [ -f "$OUT_FILE" ] && [ -s "$OUT_FILE" ]; then
+              echo "[Shot ${S_NUM}] Already rendered, skipping."
+              return 0
+            fi
+
+            echo "[Shot ${S_NUM}] Rendering 16 frames @ 8fps with prompt: ${PROMPT:0:60}..."
+            "$SD_BIN" -M vid_gen \
+              --model "$MODEL_PATH" \
+              --motion-module "$MOTION_MODULE" \
+              --diffusion-fa \
+              --mmap \
+              -p "${STYLE}, ${PROMPT}" \
+              -n "$NEG_PROMPT" \
+              -H 512 -W 512 \
+              --video-frames 16 \
+              --fps 8 \
+              --steps 14 \
+              --cfg-scale 7.0 \
+              --sampling-method euler_a \
+              --scheduler discrete \
+              -s $(( 42 + S_NUM * 17 )) \
+              -o "$OUT_FILE" > "${SCRATCH_DIR}/shot_${S_NUM}.log" 2>&1
+            
+            echo "[Shot ${S_NUM}] Successfully rendered: $(ls -lh "$OUT_FILE" | awk '{print $5}')"
+          }
+
+          if [ "$SHOT_ID" = "all" ]; then
+            echo "Rendering all 8 shots sequentially in single container session..."
+            for s in {1..8}; do
+              render_single_shot "$s"
+            done
+          else
+            render_single_shot "$SHOT_ID"
+          fi
+
+          echo "=========================================================="
+          echo "=== VIDEO GENERATION COMPLETED FOR TASK ${TASK_ID} ==="
+          ls -lh "${SCRATCH_DIR}"/shot_*_raw.webm
+          echo "=========================================================="
+        volumeMounts:
+        - name: host-usr-lib
+          mountPath: /usr/lib/x86_64-linux-gnu
+          readOnly: true
+        - name: sd-cpp
+          mountPath: /opt/stable-diffusion.cpp
+          readOnly: true
+        - name: models-storage
+          mountPath: /opt/ai-models
+          readOnly: true
+        - name: artifacts-storage
+          mountPath: /var/lib/ai-artifacts
+      volumes:
+      - name: host-usr-lib
+        hostPath:
+          path: /usr/lib/x86_64-linux-gnu
+      - name: sd-cpp
+        hostPath:
+          path: /opt/stable-diffusion.cpp
+      - name: models-storage
+        persistentVolumeClaim:
+          claimName: ai-models-pvc
+      - name: artifacts-storage
+        persistentVolumeClaim:
+          claimName: ai-artifacts-pvc

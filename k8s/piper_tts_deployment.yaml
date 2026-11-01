@@ -1,0 +1,213 @@
+# ==============================================================================
+# Containerized Piper TTS Service (FastAPI)
+# ==============================================================================
+# Port: 8084
+# Endpoints:
+#   - GET  /health
+#   - GET  /v1/voices
+#   - POST /v1/synthesize    (Writes directly to /var/lib/ai-artifacts/scratch/<task_id>/)
+#   - POST /v1/audio/speech  (OpenAI format)
+# Volume Mounts:
+#   - /opt/ai-models/tts    (Read-Only voice weights)
+#   - /var/lib/ai-artifacts (Read-Write PVC for output WAVs)
+# ==============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: piper-tts-code
+  labels:
+    app: piper-tts
+data:
+  app.py: |
+    import os
+    import wave
+    import subprocess
+    import logging
+    from typing import Optional
+    from fastapi import FastAPI, HTTPException
+    from fastapi.responses import Response
+    from pydantic import BaseModel
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    logger = logging.getLogger("piper-tts")
+
+    app = FastAPI(title="Edge Piper TTS Service", version="1.0.0")
+
+    MODEL_DIR = os.getenv("PIPER_MODEL_DIR", "/opt/ai-models/tts")
+    ARTIFACTS_DIR = os.getenv("ARTIFACTS_DIR", "/var/lib/ai-artifacts")
+
+    class SynthesizeRequest(BaseModel):
+        task_id: str
+        shot_id: int
+        text: str
+        voice: Optional[str] = "en_US-bryce-medium"
+        speaker_id: Optional[int] = None
+
+    class OpenAISpeechRequest(BaseModel):
+        input: str
+        voice: Optional[str] = "en_US-bryce-medium"
+        model: Optional[str] = "piper"
+        response_format: Optional[str] = "wav"
+
+    def get_model_path(voice_name: str) -> str:
+        model_path = os.path.join(MODEL_DIR, f"{voice_name}.onnx")
+        if not os.path.exists(model_path):
+            alt_path = os.path.join(MODEL_DIR, "voices", f"{voice_name}.onnx")
+            if os.path.exists(alt_path):
+                return alt_path
+            raise HTTPException(
+                status_code=404,
+                detail=f"Voice model '{voice_name}' not found at {model_path}."
+            )
+        return model_path
+
+    def get_wav_duration(file_path: str) -> float:
+        try:
+            with wave.open(file_path, "r") as wf:
+                return round(wf.getnframes() / float(wf.getframerate()), 2)
+        except Exception:
+            return 0.0
+
+    @app.get("/health")
+    def health():
+        return {"status": "ok", "service": "piper-tts"}
+
+    @app.get("/v1/voices")
+    def list_voices():
+        if not os.path.exists(MODEL_DIR):
+            return {"voices": []}
+        return {"voices": [f[:-5] for f in os.listdir(MODEL_DIR) if f.endswith(".onnx")]}
+
+    @app.post("/v1/synthesize")
+    def synthesize(req: SynthesizeRequest):
+        if not req.text.strip():
+            raise HTTPException(status_code=400, detail="Text cannot be empty.")
+        model_path = get_model_path(req.voice)
+        task_dir = os.path.join(ARTIFACTS_DIR, "scratch", req.task_id)
+        os.makedirs(task_dir, exist_ok=True)
+        out_file = os.path.join(task_dir, f"shot_{req.shot_id}_audio.wav")
+        cmd = ["piper", "--model", model_path, "--output_file", out_file]
+        if req.speaker_id is not None:
+            cmd.extend(["--speaker", str(req.speaker_id)])
+        try:
+            subprocess.run(cmd, input=req.text.encode("utf-8"), check=True, stderr=subprocess.PIPE)
+        except subprocess.CalledProcessError as e:
+            raise HTTPException(status_code=500, detail=f"Piper synthesis error: {e.stderr.decode('utf-8', errors='ignore')}")
+        duration = get_wav_duration(out_file)
+        return {
+            "status": "ok",
+            "task_id": req.task_id,
+            "shot_id": req.shot_id,
+            "output_path": out_file,
+            "duration_seconds": duration,
+            "voice": req.voice
+        }
+
+    @app.post("/v1/audio/speech")
+    def openai_speech(req: OpenAISpeechRequest):
+        model_path = get_model_path(req.voice)
+        cmd = ["piper", "--model", model_path, "--output_file", "-"]
+        try:
+            proc = subprocess.run(cmd, input=req.input.encode("utf-8"), check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            return Response(content=proc.stdout, media_type="audio/wav")
+        except subprocess.CalledProcessError as e:
+            raise HTTPException(status_code=500, detail="Synthesis failed")
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: piper-tts
+  labels:
+    app: piper-tts
+    tier: audio-synthesis
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: piper-tts
+  template:
+    metadata:
+      labels:
+        app: piper-tts
+    spec:
+      dnsPolicy: Default
+      nodeSelector:
+        accelerator: amd-rocm
+      containers:
+      - name: piper-service
+        image: python:3.11-slim
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          echo "Starting Piper TTS service container..."
+          pip install --no-cache-dir piper-tts fastapi uvicorn pydantic
+          mkdir -p /app && cd /app
+          cp /config/app.py /app/app.py
+          exec uvicorn app:app --host 0.0.0.0 --port 8084
+        env:
+        - name: PIPER_MODEL_DIR
+          value: "/opt/ai-models/tts"
+        - name: ARTIFACTS_DIR
+          value: "/var/lib/ai-artifacts"
+        ports:
+        - containerPort: 8084
+          hostPort: 8084
+          name: http-tts
+        resources:
+          limits:
+            cpu: "1000m"
+            memory: "512Mi"
+          requests:
+            cpu: "200m"
+            memory: "256Mi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8084
+          initialDelaySeconds: 40
+          periodSeconds: 15
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8084
+          initialDelaySeconds: 20
+          periodSeconds: 5
+        volumeMounts:
+        - name: app-code
+          mountPath: /config
+          readOnly: true
+        - name: models-tts
+          mountPath: /opt/ai-models
+          readOnly: true
+        - name: artifacts-storage
+          mountPath: /var/lib/ai-artifacts
+      volumes:
+      - name: app-code
+        configMap:
+          name: piper-tts-code
+      - name: models-tts
+        persistentVolumeClaim:
+          claimName: ai-models-pvc
+      - name: artifacts-storage
+        persistentVolumeClaim:
+          claimName: ai-artifacts-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: piper-tts
+  labels:
+    app: piper-tts
+spec:
+  type: ClusterIP
+  selector:
+    app: piper-tts
+  ports:
+  - name: http-tts
+    port: 8084
+    targetPort: 8084

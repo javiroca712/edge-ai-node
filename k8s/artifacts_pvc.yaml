@@ -1,0 +1,70 @@
+# ==============================================================================
+# Persistent Storage for Edge AI Node: Models & Dynamic Artifacts
+# ==============================================================================
+# Declares strict separation:
+#   - ai-models-pv / ai-models-pvc: Static, immutable weights (/opt/ai-models)
+#   - ai-artifacts-pv / ai-artifacts-pvc: Dynamic task scratch & outputs (/var/lib/ai-artifacts)
+# ==============================================================================
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ai-models-pv
+  labels:
+    app.kubernetes.io/part-of: edge-ai-node
+    tier: storage-immutable
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadOnlyMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  hostPath:
+    path: /opt/ai-models
+    type: Directory
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ai-models-pvc
+  labels:
+    app.kubernetes.io/part-of: edge-ai-node
+spec:
+  accessModes:
+    - ReadOnlyMany
+  storageClassName: manual
+  resources:
+    requests:
+      storage: 100Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ai-artifacts-pv
+  labels:
+    app.kubernetes.io/part-of: edge-ai-node
+    tier: storage-dynamic
+spec:
+  capacity:
+    storage: 50Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  hostPath:
+    path: /var/lib/ai-artifacts
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ai-artifacts-pvc
+  labels:
+    app.kubernetes.io/part-of: edge-ai-node
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: manual
+  resources:
+    requests:
+      storage: 50Gi

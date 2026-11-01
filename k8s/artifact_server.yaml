@@ -1,0 +1,139 @@
+# ==============================================================================
+# Containerized Artifact File Server (Nginx)
+# ==============================================================================
+# Serves generated video artifacts and metadata over HTTP from the cluster.
+# Port: 8085
+# Features:
+#   - HTTP Byte-Range support (for video seeking/streaming)
+#   - CORS support for local/remote web players
+#   - Read-only mount of /var/lib/ai-artifacts/outputs
+#   - Ultra-low CPU/RAM footprint (<30MB RAM)
+# ==============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: artifact-server-config
+  labels:
+    app: artifact-server
+data:
+  nginx.conf: |
+    events {
+        worker_connections 256;
+    }
+    http {
+        include /etc/nginx/mime.types;
+        default_type application/octet-stream;
+        sendfile on;
+        tcp_nopush on;
+        tcp_nodelay on;
+        keepalive_timeout 65;
+
+        server {
+            listen 8085;
+            server_name _;
+
+            # Health probe endpoint
+            location /health {
+                access_log off;
+                return 200 "OK\n";
+                add_header Content-Type text/plain;
+            }
+
+            # Serve outputs directory
+            location /outputs/ {
+                alias /var/lib/ai-artifacts/outputs/;
+                autoindex on;
+                autoindex_format json;
+                
+                # CORS Headers
+                add_header 'Access-Control-Allow-Origin' '*' always;
+                add_header 'Access-Control-Allow-Methods' 'GET, HEAD, OPTIONS' always;
+                add_header 'Access-Control-Allow-Headers' 'Range, Authorization, Content-Type' always;
+                add_header 'Access-Control-Expose-Headers' 'Content-Length, Content-Range' always;
+
+                # Streaming byte-range support
+                add_header 'Accept-Ranges' 'bytes' always;
+
+                if ($request_method = 'OPTIONS') {
+                    return 204;
+                }
+            }
+        }
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: artifact-server
+  labels:
+    app: artifact-server
+    tier: presentation
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: artifact-server
+  template:
+    metadata:
+      labels:
+        app: artifact-server
+    spec:
+      nodeSelector:
+        accelerator: amd-rocm
+      containers:
+      - name: nginx-file-server
+        image: nginx:alpine
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8085
+          hostPort: 8085
+          name: http-files
+        resources:
+          limits:
+            cpu: "200m"
+            memory: "64Mi"
+          requests:
+            cpu: "50m"
+            memory: "32Mi"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8085
+          initialDelaySeconds: 5
+          periodSeconds: 15
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8085
+          periodSeconds: 5
+        volumeMounts:
+        - name: nginx-conf
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+          readOnly: true
+        - name: dynamic-artifacts
+          mountPath: /var/lib/ai-artifacts/outputs
+          subPath: outputs
+          readOnly: true
+      volumes:
+      - name: nginx-conf
+        configMap:
+          name: artifact-server-config
+      - name: dynamic-artifacts
+        persistentVolumeClaim:
+          claimName: ai-artifacts-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: artifact-server
+  labels:
+    app: artifact-server
+spec:
+  type: ClusterIP
+  selector:
+    app: artifact-server
+  ports:
+  - name: http-files
+    port: 8085
+    targetPort: 8085

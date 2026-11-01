@@ -1,0 +1,105 @@
+---
+# ==============================================================================
+# Edge AI Node: Restructure Storage & Clean Host OS
+# ==============================================================================
+# - Enforces strict storage layout:
+#     * /opt/ai-models/ (Read-Only immutable weights)
+#     * /var/lib/ai-artifacts/ (Dynamic Read-Write PVC)
+# - Purges legacy host payloads (ffmpeg, aria2, produce_30s_cartoon.sh, /opt/piper)
+#   ensuring all payloads run strictly within K3s containers.
+# ==============================================================================
+- name: Restructure Edge AI Node Storage and Purge Host Payloads
+  hosts: edge_nodes
+  become: yes
+  vars:
+    artifacts_base: /var/lib/ai-artifacts
+    models_base: /opt/ai-models
+    ai_user_id: 1000
+    ai_group_id: 1000
+
+  tasks:
+    - name: 1. Create dynamic artifacts directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ ai_user_id }}"
+        group: "{{ ai_group_id }}"
+        mode: "0775"
+      loop:
+        - "{{ artifacts_base }}"
+        - "{{ artifacts_base }}/scratch"
+        - "{{ artifacts_base }}/outputs"
+
+    - name: 2. Ensure model directories exist under /opt/ai-models
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      loop:
+        - "{{ models_base }}/llm"
+        - "{{ models_base }}/diffusion"
+        - "{{ models_base }}/tts"
+
+    - name: 3. Organize LLM model weights
+      command: >
+        mv {{ models_base }}/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf {{ models_base }}/llm/
+      args:
+        removes: "{{ models_base }}/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"
+      failed_when: false
+
+    - name: 4. Create compatibility symlink for legacy LLM path if needed
+      file:
+        src: "{{ models_base }}/llm/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"
+        dest: "{{ models_base }}/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf"
+        state: link
+      failed_when: false
+
+    - name: 5. Organize Diffusion model weights
+      shell: |
+        if [ -d "{{ models_base }}/animatediff" ]; then
+          cp -rn {{ models_base }}/animatediff/*.safetensors {{ models_base }}/diffusion/ 2>/dev/null || true
+        fi
+      changed_when: false
+
+    - name: 6. Organize Piper TTS voices into /opt/ai-models/tts
+      shell: |
+        if [ -d "/opt/piper/voices" ]; then
+          cp -rn /opt/piper/voices/* {{ models_base }}/tts/ 2>/dev/null || true
+        fi
+      changed_when: false
+
+    - name: 7. Purge legacy host script /usr/local/bin/produce_30s_cartoon.sh
+      file:
+        path: /usr/local/bin/produce_30s_cartoon.sh
+        state: absent
+
+    - name: 8. Remove legacy /opt/piper host directory
+      file:
+        path: /opt/piper
+        state: absent
+
+    - name: 9. Remove legacy scratch folders inside model directory
+      file:
+        path: "{{ models_base }}/animatediff/cartoon_project"
+        state: absent
+
+    - name: 10. Uninstall host-level ffmpeg and aria2 packages
+      apt:
+        name:
+          - ffmpeg
+          - aria2
+        state: absent
+        purge: yes
+        autoremove: yes
+      when: purge_host_packages | default(true)
+
+    - name: 11. Verify dynamic artifacts permissions
+      command: ls -ld {{ artifacts_base }}/scratch {{ artifacts_base }}/outputs
+      register: artifacts_stat
+      changed_when: false
+
+    - name: Display verification status
+      debug:
+        msg: "{{ artifacts_stat.stdout_lines }}"

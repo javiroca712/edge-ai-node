@@ -1,0 +1,145 @@
+# ==============================================================================
+# Containerized Media Assembler Job (FFmpeg CPU)
+# ==============================================================================
+# Upscales 512x512 raw clips to 720p, interpolates to 30fps, attaches audio,
+# and concatenates 8 shots into a finalized master MP4 with metadata.
+#
+# Image: jrottenberg/ffmpeg:6.1-alpine (pristine, zero host-installed dependencies)
+# Volume Mount: /var/lib/ai-artifacts (ai-artifacts-pvc)
+# ==============================================================================
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: media-assembler
+  labels:
+    app: media-assembler
+    tier: video-postprocessing
+spec:
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: media-assembler
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        accelerator: amd-rocm
+      containers:
+      - name: ffmpeg-assembler
+        image: jrottenberg/ffmpeg:6.1-alpine
+        imagePullPolicy: IfNotPresent
+        resources:
+          limits:
+            cpu: "3000m"
+            memory: "1536Mi"
+          requests:
+            cpu: "1000m"
+            memory: "512Mi"
+        env:
+        - name: TASK_ID
+          value: "task_latest"
+        - name: OUTPUT_FILENAME
+          value: "cartoon_30s_720p_30fps.mp4"
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          set -eu
+          echo "=========================================================="
+          echo "=== CONTAINERIZED FFMPEG 720P 30FPS POST-PROCESSOR ==="
+          echo "Task ID: ${TASK_ID}"
+          echo "Date: $(date -u)"
+          echo "=========================================================="
+
+          SCRATCH_DIR="/var/lib/ai-artifacts/scratch/${TASK_ID}"
+          OUTPUT_DIR="/var/lib/ai-artifacts/outputs/${TASK_ID}"
+          FINAL_MP4="${OUTPUT_DIR}/${OUTPUT_FILENAME}"
+
+          if [ ! -d "$SCRATCH_DIR" ]; then
+            echo "ERROR: Scratch directory $SCRATCH_DIR does not exist!"
+            exit 1
+          fi
+
+          mkdir -p "$OUTPUT_DIR"
+          CONCAT_LIST="${SCRATCH_DIR}/concat_list.txt"
+          rm -f "$CONCAT_LIST"
+
+          # Durations for the 8 cartoon shots (total 30 seconds)
+          DURS="4.0 4.0 3.5 3.5 3.5 4.0 4.0 3.5"
+          
+          idx=1
+          for DUR in $DURS; do
+            RAW="${SCRATCH_DIR}/shot_${idx}_raw.webm"
+            PROCESSED="${SCRATCH_DIR}/shot_${idx}_720p.mp4"
+            AUD="${SCRATCH_DIR}/shot_${idx}_audio.wav"
+
+            if [ ! -f "$RAW" ]; then
+              echo "WARNING: Raw video $RAW not found, searching for .mp4 alternative..."
+              RAW="${SCRATCH_DIR}/shot_${idx}_raw.mp4"
+            fi
+
+            if [ ! -f "$RAW" ]; then
+              echo "ERROR: Missing video for shot ${idx} ($RAW)"
+              exit 1
+            fi
+
+            echo "[Shot ${idx}] Processing: duration=${DUR}s, raw=${RAW}..."
+
+            if [ -f "$AUD" ] && [ -s "$AUD" ]; then
+              echo "[Shot ${idx}] Muxing dialogue audio: ${AUD}"
+              ffmpeg -y -stream_loop 2 -i "$RAW" -i "$AUD" \
+                -filter_complex "[0:v]scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,fps=30,trim=duration=${DUR}[v];[1:a]atrim=duration=${DUR},apad=whole_dur=${DUR}[a]" \
+                -map "[v]" -map "[a]" \
+                -c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p \
+                -c:a aac -b:a 192k \
+                "$PROCESSED"
+            else
+              echo "[Shot ${idx}] Silent shot: generating subtle ambient audio"
+              ffmpeg -y -stream_loop 2 -i "$RAW" \
+                -f lavfi -i "anullsrc=channel_layout=stereo:sample_rate=44100" \
+                -filter_complex "[0:v]scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,fps=30,trim=duration=${DUR}[v];[1:a]atrim=duration=${DUR}[a]" \
+                -map "[v]" -map "[a]" \
+                -c:v libx264 -preset fast -crf 18 -pix_fmt yuv420p \
+                -c:a aac -b:a 192k \
+                "$PROCESSED"
+            fi
+
+            echo "file '${PROCESSED}'" >> "$CONCAT_LIST"
+            idx=$((idx + 1))
+          done
+
+          echo "=========================================================="
+          echo "=== CONCATENATING ALL 8 SHOTS INTO MASTER MP4 ==="
+          echo "=========================================================="
+
+          ffmpeg -y -f concat -safe 0 -i "$CONCAT_LIST" \
+            -c:v copy -c:a aac -b:a 192k \
+            "$FINAL_MP4"
+
+          FILE_SIZE=$(ls -lh "$FINAL_MP4" | awk '{print $5}')
+          echo "=========================================================="
+          echo "=== VIDEO GENERATION COMPLETE: ${FINAL_MP4} (${FILE_SIZE}) ==="
+          echo "=========================================================="
+
+          # Output JSON metadata for consumers
+          cat <<EOF > "${OUTPUT_DIR}/metadata.json"
+          {
+            "task_id": "${TASK_ID}",
+            "filename": "${OUTPUT_FILENAME}",
+            "size": "${FILE_SIZE}",
+            "resolution": "1280x720",
+            "fps": 30,
+            "target_duration_seconds": 30.0,
+            "status": "COMPLETED",
+            "created_at": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          }
+          EOF
+
+          echo "Metadata generated at ${OUTPUT_DIR}/metadata.json"
+        volumeMounts:
+        - name: dynamic-artifacts
+          mountPath: /var/lib/ai-artifacts
+      volumes:
+      - name: dynamic-artifacts
+        persistentVolumeClaim:
+          claimName: ai-artifacts-pvc

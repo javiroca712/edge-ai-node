@@ -1,8 +1,9 @@
 # Script to deploy, scale, and orchestrate K3s workloads on Edge Nodes
 param (
-    [string]$Action = "status",   # "deploy-plugin", "deploy-dynamic-llm", "scale-llm", "run-dynamic-video", "status"
+    [string]$Action = "status",   # "deploy-storage", "deploy-plugin", "deploy-artifact-server", "deploy-piper", "deploy-dynamic-llm", "scale-llm", "run-dynamic-video", "run-media-assembler", "deploy-all", "status"
     [int]$Replicas = 1
 )
+
 
 $K8sDir = "$PSScriptRoot\..\k8s"
 
@@ -50,10 +51,51 @@ switch ($Action) {
         Run-Kubectl "wait --for=condition=complete job/video-gen-dynamic --timeout=300s"
         Write-Host "Video generation completed successfully!" -ForegroundColor Green
     }
+    "deploy-storage" {
+        Write-Host "Deploying Models and Artifacts PersistentVolumes & Claims..." -ForegroundColor Cyan
+        Get-Content "$K8sDir\artifacts_pvc.yaml" | docker exec -i k3s-control-plane kubectl apply -f -
+        Write-Host "PersistentVolumes and PVCs created!" -ForegroundColor Green
+        Run-Kubectl "get pv,pvc"
+    }
+    "deploy-artifact-server" {
+        Write-Host "Deploying Nginx Artifact File Server (Port 8085)..." -ForegroundColor Cyan
+        Get-Content "$K8sDir\artifact_server.yaml" | docker exec -i k3s-control-plane kubectl apply -f -
+        Write-Host "Waiting for artifact-server rollout..." -ForegroundColor Yellow
+        Run-Kubectl "rollout status deployment/artifact-server --timeout=60s"
+        Write-Host "Artifact Server is online! Accessible at http://100.104.80.65:8085/outputs/" -ForegroundColor Green
+    }
+    "deploy-piper" {
+        Write-Host "Deploying Containerized Piper TTS Microservice (Port 8084)..." -ForegroundColor Cyan
+        Get-Content "$K8sDir\piper_tts_deployment.yaml" | docker exec -i k3s-control-plane kubectl apply -f -
+        Write-Host "Waiting for piper-tts pod startup..." -ForegroundColor Yellow
+        Run-Kubectl "rollout status deployment/piper-tts --timeout=120s"
+        Write-Host "Piper TTS is online! Accessible at http://100.104.80.65:8084/health" -ForegroundColor Green
+    }
+    "run-media-assembler" {
+        Write-Host "Submitting Media Assembler Job (FFmpeg CPU Container)..." -ForegroundColor Cyan
+        Run-Kubectl "delete job media-assembler --ignore-not-found=true" | Out-Null
+        Get-Content "$K8sDir\media_assembler_job.yaml" | docker exec -i k3s-control-plane kubectl apply -f -
+        Write-Host "Assembler job dispatched! Waiting for completion..." -ForegroundColor Yellow
+        Run-Kubectl "wait --for=condition=complete job/media-assembler --timeout=180s"
+        Write-Host "Media assembly completed! Check outputs at http://100.104.80.65:8085/outputs/task_latest/" -ForegroundColor Green
+    }
+    "deploy-all" {
+        Write-Host "=== Deploying Entire Restructured Edge AI Node Stack ===" -ForegroundColor Magenta
+        & $PSCommandPath -Action "deploy-storage"
+        & $PSCommandPath -Action "deploy-plugin"
+        & $PSCommandPath -Action "deploy-artifact-server"
+        & $PSCommandPath -Action "deploy-piper"
+        & $PSCommandPath -Action "deploy-dynamic-llm"
+        Write-Host "`nAll microservices and persistent storage deployed!" -ForegroundColor Green
+        & $PSCommandPath -Action "status"
+    }
     "status" {
         Write-Host "=== K3s Cluster Hardware & GPU Capacity ===" -ForegroundColor Cyan
         Run-Kubectl "get nodes -o custom-columns=NAME:.metadata.name,STATUS:.status.conditions[-1].type,ROLES:.metadata.labels.'node-role\.kubernetes\.io/master',GPUS:.status.allocatable.'amd\.com/gpu',BUS_SLOT0:.metadata.labels.'gpu\.amd\.com/slot0\.bus',BUS_SLOT1:.metadata.labels.'gpu\.amd\.com/slot1\.bus'"
-        Write-Host "`n=== Deployments & Pods ===" -ForegroundColor Cyan
+        Write-Host "`n=== Persistent Volumes & Claims ===" -ForegroundColor Cyan
+        Run-Kubectl "get pv,pvc"
+        Write-Host "`n=== Deployments, Pods & Jobs ===" -ForegroundColor Cyan
         Run-Kubectl "get deployments,pods,jobs -o wide"
     }
 }
+
