@@ -4,8 +4,8 @@
   become: yes
   vars:
     inference_mode: "k8s"
-    k3s_server_host: "{{ k3s_override_host | default('100.112.218.62') }}"
-    k3s_token: "{{ k3s_override_token | default('edge-ai-node-secret-token-2026') }}"
+    k3s_server_host: "{{ lookup('env', 'LAPTOP_TAILSCALE_IP') | default(k3s_override_host | default('100.112.218.62'), true) }}"
+    k3s_token: "{{ lookup('env', 'K3S_TOKEN') | default(k3s_override_token | default('edge-ai-node-secret-token-change-me'), true) }}"
   roles:
     - os_tuning
     - amd_rocm

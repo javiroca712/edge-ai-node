@@ -31,7 +31,7 @@ spec:
             add: ["SYS_PTRACE"]
         ports:
         - containerPort: 8083
-          hostPort: 8083
+          name: http-inference
         env:
         - name: HSA_OVERRIDE_GFX_VERSION
           value: "10.3.0"
@@ -95,10 +95,11 @@ metadata:
   labels:
     app: llama-server
 spec:
-  type: ClusterIP
+  type: NodePort
   selector:
     app: llama-server
   ports:
   - name: http-inference
     port: 8083
     targetPort: 8083
+    nodePort: 30083

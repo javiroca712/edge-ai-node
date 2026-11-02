@@ -1,0 +1,16 @@
+# ==============================================================================
+# Kustomize Configuration for Edge AI Node Cluster
+# ==============================================================================
+apiVersion: kustomize.config.k8s.io/v1compat
+kind: Kustomization
+
+resources:
+  - artifacts_pvc.yaml
+  - amd_gpu_device_plugin.yaml
+  - artifact_server.yaml
+  - piper_tts_deployment.yaml
+  - llama_server_dynamic.yaml
+
+commonLabels:
+  app.kubernetes.io/managed-by: kustomize
+  app.kubernetes.io/part-of: edge-ai-node

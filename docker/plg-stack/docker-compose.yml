@@ -1,6 +1,6 @@
 services:
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.54.1
     extra_hosts:
       - "edge-node:${EDGE_NODE_HOST:-127.0.0.1}"
     volumes:
@@ -14,7 +14,7 @@ services:
     restart: always
 
   loki:
-    image: grafana/loki:latest
+    image: grafana/loki:3.1.1
     volumes:
       - loki_data:/loki
     ports:
@@ -23,7 +23,7 @@ services:
     restart: always
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:11.2.0
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro

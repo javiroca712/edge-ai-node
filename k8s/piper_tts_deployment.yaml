@@ -156,7 +156,6 @@ spec:
           value: "/var/lib/ai-artifacts"
         ports:
         - containerPort: 8084
-          hostPort: 8084
           name: http-tts
         resources:
           limits:
@@ -204,10 +203,11 @@ metadata:
   labels:
     app: piper-tts
 spec:
-  type: ClusterIP
+  type: NodePort
   selector:
     app: piper-tts
   ports:
   - name: http-tts
     port: 8084
     targetPort: 8084
+    nodePort: 30084

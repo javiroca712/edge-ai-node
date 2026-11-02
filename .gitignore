@@ -31,9 +31,25 @@ artifacts/
 *.webm
 *.mp4
 
-# Python cache
+# Python cache & test artifacts
 __pycache__/
 *.py[cod]
 *$py.class
+.pytest_cache/
+.coverage
+htmlcov/
 
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+!terraform.tfvars.example
+*.tfplan
+
+# Ansible
+*.retry
+ansible.log
 

@@ -61,3 +61,29 @@ This document summarizes the technical challenges encountered while building the
   2. **Tier 2 - Automated Hardware Introspection & Discovery:** Created `/usr/local/bin/discover_node_hardware.sh` to dynamically inspect GPUs, VRAM capacity, GFX architecture, and parent PCIe root port link widths directly via `sysfs`. Node labels (`accelerator=amd-rocm`, `gpu.amd.com/has-fastbus=true`, `gpu.amd.com/vram-gib=12`, `gpu.amd.com/arch=gfx1031`) are declaratively pushed to `/etc/rancher/k3s/config.yaml` via Ansible with zero manual configuration.
   3. **Tier 3 - Dynamic GPU Scheduling & On-Demand Lifecycle:** Deployed the official ROCm device plugin (`rocm/k8s-device-plugin`) as a DaemonSet targeting `accelerator: amd-rocm`, advertising allocatable `amd.com/gpu: 2`. Workloads declare standard `resources.limits: amd.com/gpu: 1` with soft node affinity (`preferredDuringSchedulingIgnoredDuringExecution` for `fastbus`). LLM servers scale on-demand between 0 and 1 replicas, instantly reclaiming and reallocating GPU VRAM across text and generative video batch jobs without oversubscription or crashes.
 
+## 12. IaC Boundaries: Ansible vs. Terraform
+- **Design Principle:** Clear separation between **machine configuration** and **cluster infrastructure**.
+- **Ansible Role (`ansible/`):** Manages the bare-metal physical node lifecycle—kernel parameters (`pcie_aspm=off`, `iommu=pt`), out-of-tree DKMS drivers (`asus-wmi-sensors`), swap space allocation, ROCm package installation, and the lightweight `k3s-agent` systemd daemon.
+- **Terraform Role (`terraform/`):** Manages in-cluster Kubernetes and Helm resources declaratively—workload namespaces, storage bindings (immutable models PV/PVC and dynamic artifacts PV/PVC), AMD GPU device plugin daemonset, and microservice deployments. Executed inside a containerized runner on the dev laptop to guarantee zero host pollution on the edge appliance.
+
+## 13. Containerization Integrity & CI/CD (GitHub Actions)
+- **Challenge:** Early iterations mounted host dynamic libraries (`/usr/lib/x86_64-linux-gnu`) and host-compiled binaries into containers via `hostPath`, creating brittle dependencies on host environment state.
+- **Decision:** Shifted to standalone multi-stage OCI images (`docker/piper-tts/`, `docker/llama-server/`, `docker/sd-diffusion/`).
+- **CI/CD Integration:** Implemented GitHub Actions workflows (`.github/workflows/`):
+  1. Automated linting and validation via `yamllint`, `ansible-lint`, `shellcheck`, and `kubeconform` (against Kubernetes 1.31 schemas).
+  2. Automated Python unit tests (`tests/`).
+  3. Declarative Terraform formatting and validation.
+  4. Automated container image builds and releases published to GitHub Container Registry (GHCR).
+
+## 14. Kubernetes Networking: Eliminating `hostPort` with Standard `NodePort` Services
+- **Challenge:** Early prototypes bound container workloads directly to host ports (`hostPort: 8083`, `hostPort: 8084`, `hostPort: 8085`). In Kubernetes, `hostPort` is a known antipattern: it induces port collisions during rolling updates (new pods cannot start while old pods hold the port), prevents co-locating replicas on the same node, and couples container lifecycle to physical host networking.
+- **Decision:** Refactored all microservices to use standard Kubernetes `NodePort` services within the official IANA allocated range (30000–32767):
+  - `llama-api`: Service port `8083` -> `nodePort: 30083`
+  - `piper-tts`: Service port `8084` -> `nodePort: 30084`
+  - `artifact-server`: Service port `8085` -> `nodePort: 30085`
+- **Why NodePort over Ingress / ServiceLB for Edge Node:**
+  - The K3s control plane runs with `--disable=traefik` and `--disable=servicelb` to preserve 100% of the host's tight RAM for tensor workloads.
+  - `NodePort` uses native `kube-proxy` iptables packet forwarding with zero daemon overhead.
+  - Pods can perform zero-downtime recreation and rolling updates, while client applications and the LiteLLM gateway route reliably to deterministic NodePort endpoints across the Tailscale mesh.
+
+

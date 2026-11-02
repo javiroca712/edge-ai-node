@@ -1,0 +1,42 @@
+name: Build and Publish OCI Container Images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docker/**"
+      - ".github/workflows/docker-publish.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-piper-tts:
+    name: Build & Publish Piper TTS Image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Push Piper TTS
+        uses: docker/build-push-action@v5
+        with:
+          context: docker/piper-tts
+          push: ${{ github.ref == 'refs/heads/main' }}
+          tags: |
+            ghcr.io/${{ github.repository }}/edge-piper-tts:latest
+            ghcr.io/${{ github.repository }}/edge-piper-tts:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

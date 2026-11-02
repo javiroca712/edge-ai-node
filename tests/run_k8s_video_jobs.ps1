@@ -1,8 +1,8 @@
 # K3s Containerized Video Generation Runner for Dual-GPU Edge Node
 # Runs K3s Jobs on GPU 0 (PCIe x8) and GPU 1 (PCIe x4)
 
-$NodeHost = "100.104.80.65"
-$User = "ai-agent"
+$NodeHost = if ($env:EDGE_NODE_HOST) { $env:EDGE_NODE_HOST } else { "100.104.80.65" }
+$User = if ($env:EDGE_NODE_USER) { $env:EDGE_NODE_USER } else { "ai-agent" }
 $ManifestGpu0 = "$PSScriptRoot\..\k8s\video_gen_job_gpu0.yaml"
 $ManifestGpu1 = "$PSScriptRoot\..\k8s\video_gen_job_gpu1.yaml"
 $ArtifactsDir = "$PSScriptRoot\..\artifacts"

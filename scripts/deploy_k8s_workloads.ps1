@@ -6,6 +6,7 @@ param (
 
 
 $K8sDir = "$PSScriptRoot\..\k8s"
+$EdgeHost = if ($env:EDGE_NODE_HOST) { $env:EDGE_NODE_HOST } else { "100.104.80.65" }
 
 function Run-Kubectl {
     param([string]$Cmd)
@@ -30,8 +31,8 @@ switch ($Action) {
         Get-Content "$K8sDir\llama_server_dynamic.yaml" | docker exec -i k3s-control-plane kubectl apply -f -
         Write-Host "Waiting for dynamic llama-server pod readiness (startupProbe)..." -ForegroundColor Yellow
         Run-Kubectl "rollout status deployment/llama-server-dynamic --timeout=240s"
-        Write-Host "Dynamic LLM Server ready! Testing /health..." -ForegroundColor Green
-        Invoke-RestMethod -Uri "http://100.104.80.65:8083/health"
+        Write-Host "Dynamic LLM Server ready! Testing /health on NodePort 30083..." -ForegroundColor Green
+        Invoke-RestMethod -Uri "http://${EdgeHost}:30083/health"
     }
     "scale-llm" {
         Write-Host "Scaling llama-server-dynamic to $Replicas replicas (on-demand resource management)..." -ForegroundColor Cyan
@@ -58,18 +59,18 @@ switch ($Action) {
         Run-Kubectl "get pv,pvc"
     }
     "deploy-artifact-server" {
-        Write-Host "Deploying Nginx Artifact File Server (Port 8085)..." -ForegroundColor Cyan
+        Write-Host "Deploying Nginx Artifact File Server (NodePort 30085)..." -ForegroundColor Cyan
         Get-Content "$K8sDir\artifact_server.yaml" | docker exec -i k3s-control-plane kubectl apply -f -
         Write-Host "Waiting for artifact-server rollout..." -ForegroundColor Yellow
         Run-Kubectl "rollout status deployment/artifact-server --timeout=60s"
-        Write-Host "Artifact Server is online! Accessible at http://100.104.80.65:8085/outputs/" -ForegroundColor Green
+        Write-Host "Artifact Server is online! Accessible at http://${EdgeHost}:30085/outputs/" -ForegroundColor Green
     }
     "deploy-piper" {
-        Write-Host "Deploying Containerized Piper TTS Microservice (Port 8084)..." -ForegroundColor Cyan
+        Write-Host "Deploying Containerized Piper TTS Microservice (NodePort 30084)..." -ForegroundColor Cyan
         Get-Content "$K8sDir\piper_tts_deployment.yaml" | docker exec -i k3s-control-plane kubectl apply -f -
         Write-Host "Waiting for piper-tts pod startup..." -ForegroundColor Yellow
         Run-Kubectl "rollout status deployment/piper-tts --timeout=120s"
-        Write-Host "Piper TTS is online! Accessible at http://100.104.80.65:8084/health" -ForegroundColor Green
+        Write-Host "Piper TTS is online! Accessible at http://${EdgeHost}:30084/health" -ForegroundColor Green
     }
     "run-media-assembler" {
         Write-Host "Submitting Media Assembler Job (FFmpeg CPU Container)..." -ForegroundColor Cyan
@@ -77,7 +78,7 @@ switch ($Action) {
         Get-Content "$K8sDir\media_assembler_job.yaml" | docker exec -i k3s-control-plane kubectl apply -f -
         Write-Host "Assembler job dispatched! Waiting for completion..." -ForegroundColor Yellow
         Run-Kubectl "wait --for=condition=complete job/media-assembler --timeout=180s"
-        Write-Host "Media assembly completed! Check outputs at http://100.104.80.65:8085/outputs/task_latest/" -ForegroundColor Green
+        Write-Host "Media assembly completed! Check outputs at http://${EdgeHost}:30085/outputs/task_latest/" -ForegroundColor Green
     }
     "deploy-all" {
         Write-Host "=== Deploying Entire Restructured Edge AI Node Stack ===" -ForegroundColor Magenta

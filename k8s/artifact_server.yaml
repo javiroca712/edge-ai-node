@@ -86,7 +86,6 @@ spec:
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8085
-          hostPort: 8085
           name: http-files
         resources:
           limits:
@@ -130,10 +129,11 @@ metadata:
   labels:
     app: artifact-server
 spec:
-  type: ClusterIP
+  type: NodePort
   selector:
     app: artifact-server
   ports:
   - name: http-files
     port: 8085
     targetPort: 8085
+    nodePort: 30085

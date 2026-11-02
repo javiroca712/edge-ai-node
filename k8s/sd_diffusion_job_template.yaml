@@ -41,7 +41,7 @@ spec:
                 values: ["true"]
       containers:
       - name: sd-video-runner
-        image: ubuntu:latest
+        image: ghcr.io/javiroca712/edge-sd-diffusion:latest
         imagePullPolicy: IfNotPresent
         resources:
           limits:
@@ -52,8 +52,6 @@ spec:
         env:
         - name: HSA_OVERRIDE_GFX_VERSION
           value: "10.3.0"
-        - name: LD_LIBRARY_PATH
-          value: "/usr/lib/x86_64-linux-gnu"
         - name: TASK_ID
           value: "task_latest"
         - name: SHOT_ID
@@ -83,7 +81,7 @@ spec:
             MODEL_PATH="${MODEL_DIR}/realisticVisionV60B1.safetensors"
           fi
           MOTION_MODULE="${MODEL_DIR}/mm_sd15_v3.safetensors"
-          SD_BIN="/opt/stable-diffusion.cpp/build/bin/sd-cli"
+          SD_BIN="sd-cli"
 
           STYLE="masterpiece, best quality, cartoon animation style, vibrant colors, 3D Pixar style, clean lines, expressive, cinematic lighting"
           NEG_PROMPT="photorealistic, real life photo, deformed, distorted, blurry, bad anatomy, bad quality, artifacts, watermark, lowres, ugly"
@@ -145,24 +143,12 @@ spec:
           ls -lh "${SCRATCH_DIR}"/shot_*_raw.webm
           echo "=========================================================="
         volumeMounts:
-        - name: host-usr-lib
-          mountPath: /usr/lib/x86_64-linux-gnu
-          readOnly: true
-        - name: sd-cpp
-          mountPath: /opt/stable-diffusion.cpp
-          readOnly: true
         - name: models-storage
           mountPath: /opt/ai-models
           readOnly: true
         - name: artifacts-storage
           mountPath: /var/lib/ai-artifacts
       volumes:
-      - name: host-usr-lib
-        hostPath:
-          path: /usr/lib/x86_64-linux-gnu
-      - name: sd-cpp
-        hostPath:
-          path: /opt/stable-diffusion.cpp
       - name: models-storage
         persistentVolumeClaim:
           claimName: ai-models-pvc

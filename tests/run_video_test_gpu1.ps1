@@ -2,8 +2,8 @@
 # Target: GPU 1 (0000:0e:00.0, PCIe 3.0 x4 bus)
 # Engine: stable-diffusion.cpp (HIPBLAS RDNA2 gfx1030)
 
-$NodeHost = "100.104.80.65"
-$User = "ai-agent"
+$NodeHost = if ($env:EDGE_NODE_HOST) { $env:EDGE_NODE_HOST } else { "100.104.80.65" }
+$User = if ($env:EDGE_NODE_USER) { $env:EDGE_NODE_USER } else { "ai-agent" }
 $RemoteScript = "/home/ai-agent/run_sd_video_test_gpu1.sh"
 $RemoteVideo = "/opt/ai-models/animatediff/output_eagle_test_gpu1_x4.webm"
 $LocalVideo = "$PSScriptRoot\..\artifacts\output_eagle_test_gpu1_x4.webm"

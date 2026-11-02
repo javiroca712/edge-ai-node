@@ -21,9 +21,9 @@
 
 - name: Clone llama.cpp repository
   git:
-    repo: https://github.com/ggml-org/llama.cpp.git
-    dest: /opt/llama.cpp
-    version: master
+    repo: "{{ llamacpp_repo }}"
+    dest: "{{ llamacpp_dest }}"
+    version: "{{ llamacpp_version }}"
     update: no
 
 - name: Apply Flash Attention patch to bypass RDNA2 max_blocks_per_sm crash

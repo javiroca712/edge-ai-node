@@ -1,9 +1,10 @@
 # 🚀 Edge AI Node: Bare-Metal Multi-GPU Inference Cluster
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![OS: Bare--Metal Ubuntu Server](https://img.shields.io/badge/OS-Ubuntu%20Server%2026.04%20LTS-E95420.svg)](docs/HARDWARE_INVENTORY.md)
+[![CI/CD: GitHub Actions](https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-2088FF.svg)](.github/workflows/)
+[![IaC: Ansible & Terraform](https://img.shields.io/badge/IaC-Ansible%20%7C%20Terraform-663399.svg)](terraform/)
+[![Orchestration: K3s Edge](https://img.shields.io/badge/Orchestration-K3s%20Cluster-FFC61C.svg)](k8s/)
 [![ROCm: 6.x (gfx1030)](https://img.shields.io/badge/ROCm-gfx1030%20(RDNA2)-red.svg)](docs/ARCHITECTURAL_DECISIONS.md)
-[![Inference: llama.cpp](https://img.shields.io/badge/Engine-llama.cpp%20(Replica)-orange.svg)](scripts/setup_replica_services.sh)
 [![Gateway: LiteLLM](https://img.shields.io/badge/Gateway-LiteLLM%20Router-purple.svg)](docker/litellm/)
 [![Observability: PLG Stack](https://img.shields.io/badge/Observability-Prometheus%20%7C%20Grafana-green.svg)](docker/plg-stack/)
 
@@ -103,44 +104,63 @@ flowchart TD
 ## 4. Repository Structure
 
 ```text
-├── ansible/                              # Infrastructure as Code (IaC) configuration
-│   ├── inventory.yml                     # Node IP and connection details
-│   ├── deploy_edge_node.yml              # Master playbook
+├── .github/workflows/                    # Automated CI/CD Pipelines
+│   ├── lint-and-validate.yml             # yamllint, shellcheck, kubeconform, ruff & unit tests
+│   ├── terraform-validate.yml            # terraform fmt & validation
+│   └── docker-publish.yml                # OCI image build & push to GitHub Container Registry (GHCR)
+├── ansible/                              # Host OS Lifecycle & Provisioning (Bare Metal)
+│   ├── inventory.yml                     # Parameterized inventory with environment lookup
+│   ├── inventory.example.yml             # Template inventory
+│   ├── deploy_edge_node.yml              # Master bare-metal node playbook
 │   └── roles/
 │       ├── os_tuning/                    # GRUB flags (pcie_aspm=off), 16GB swap, LVM, asus-wmi-sensors DKMS
-│       ├── amd_rocm/                     # Native Ubuntu 26.04 ROCm 7.x stack & llama-api system account
-│       ├── llamacpp_build/               # Source compilation, Flash Attention patch, GGUF model download
-│       ├── replica_services/             # Multi-GPU systemd service daemons (Ports 8082 & 8083)
-│       └── observability/                # Node exporter textfile collector, gpu-metrics.sh cron, Promtail
-├── config/
-│   └── rocm-override.sh                  # Kernel environment variables for RDNA2
-├── docker/
-│   ├── litellm/
-│   │   ├── config.yaml                   # LiteLLM router configuration (least-busy)
-│   │   └── docker-compose.yml            # Gateway compose service with extra_hosts mapping
-│   └── plg-stack/
-│       ├── docker-compose.yml            # Prometheus, Loki, Grafana stack definition
-│       ├── prometheus.yml                # Metric scrape targets
-│       └── grafana/
-│           ├── dashboards/               # Exported dashboard models (llama.cpp, node-exporter)
-│           └── provisioning/             # Declarative datasource & dashboard provisioning
+│       ├── amd_rocm/                     # Native Ubuntu 26.04 ROCm 7.x stack & system accounts
+│       ├── k3s_agent/                    # Dynamic sysfs hardware discovery & k3s-agent daemon
+│       ├── llamacpp_build/               # Source compilation, Flash Attention patch, GGUF models
+│       ├── stable_diffusion_cpp/         # AnimateDiff v3 + ToonYou model compilation
+│       └── observability/                # Node exporter textfile collector & Promtail
+├── docker/                               # Containerized Tools & Runtimes (Dev Laptop)
+│   ├── k3s-control-plane/                # K3s server container (laptop:6443) with kubeconfig output
+│   ├── ansible-runner/                   # Zero-dependency containerized Ansible runner
+│   ├── terraform-runner/                 # Zero-dependency containerized Terraform runner
+│   ├── litellm/                          # LiteLLM router (least-busy load balancer)
+│   ├── plg-stack/                        # Prometheus, Loki, Grafana observability stack
+│   ├── piper-tts/                        # Standalone Piper neural voice synthesis microservice
+│   ├── llama-server/                     # ROCm gfx1030 standalone llama.cpp server container
+│   └── sd-diffusion/                     # ROCm gfx1030 AnimateDiff video generation container
+├── k8s/                                  # Kubernetes Manifests & Storage Bindings
+│   ├── kustomization.yaml                # Declarative Kustomize resource index
+│   ├── artifacts_pvc.yaml                # ai-models (RO) and ai-artifacts (RWX) PV & PVCs
+│   ├── amd_gpu_device_plugin.yaml        # Official ROCm k8s-device-plugin DaemonSet
+│   ├── artifact_server.yaml              # Nginx static video asset HTTP streaming server
+│   ├── piper_tts_deployment.yaml         # Containerized Piper TTS FastAPI service
+│   ├── llama_server_dynamic.yaml         # Dynamic GPU LLM inference server
+│   ├── media_assembler_job.yaml          # FFmpeg 720p 30fps containerized assembly job
+│   └── sd_diffusion_job_template.yaml    # AnimateDiff GPU video generation batch job
+├── terraform/                            # In-Cluster Infrastructure as Code
+│   ├── providers.tf                      # Kubernetes & Helm providers
+│   ├── main.tf                           # Namespaces, PVCs, Device Plugin, Deployments & Services
+│   ├── variables.tf                      # Cluster configuration variables
+│   ├── outputs.tf                        # Service HTTP endpoints
+│   └── terraform.tfvars.example          # Sample variables file
 ├── docs/
-│   ├── ARCHITECTURAL_DECISIONS.md        # Detailed engineering logs & pivot rationale
+│   ├── ARCHITECTURAL_DECISIONS.md        # Detailed engineering logs, IaC boundaries & pivot rationale
 │   ├── HARDWARE_INVENTORY.md             # Verified bare-metal hardware telemetry
 │   └── LESSONS_LEARNED.md                # Benchmarks, container gotchas & technical insights
 ├── scripts/
-│   ├── legacy/                           # Verified imperative provisioning bash scripts
-│   │   ├── setup_os.sh                   # OS setup, LVM, 16GB swap, GRUB flags, DKMS
-│   │   ├── install_rocm.sh               # Native ROCm packages & llama-api user
-│   │   ├── build_llama.sh                # Source build, fattn patch, model download
-│   │   ├── setup_replica_services.sh     # Systemd services (ports 8082/8083)
-│   │   └── setup_observability.sh        # Node exporter textfile collector & Promtail
-│   ├── start_llama.sh                    # Dockerized fallback runner
-│   └── start_webui.sh                    # Open WebUI startup helper
+│   ├── cartoon_studio.py                 # Pure Python end-to-end 30s cartoon pipeline orchestrator
+│   ├── deploy_k8s_workloads.ps1          # Kubernetes workload management helper
+│   ├── run_ansible.ps1                   # Docker-based Ansible execution helper
+│   ├── run_terraform.ps1                 # Docker-based Terraform execution helper
+│   └── discover_node_hardware.sh         # Dynamic PCIe link & VRAM sysfs discovery script
 ├── tests/
-│   └── load_test.ps1                     # Concurrent multi-stream stress testing script
+│   ├── test_cartoon_studio.py            # Unit tests for timeline geometry & templating
+│   ├── test_k8s_manifests.py             # Schema & syntax tests for all K8s manifests
+│   ├── test_piper_tts_api.py             # FastAPI unit tests for TTS service
+│   ├── benchmark_live_gpus.ps1           # Live PCIe asymmetry stress test
+│   └── test_k8s_llama.ps1                # OpenAI API latency benchmark
 ├── .env.example                          # Environment variable configuration template
-├── .gitignore                            # Excludes build artifacts, models, .env & private files
+├── .gitignore                            # Excludes build artifacts, models, .env, secrets & tfstate
 └── LICENSE                               # MIT License
 ```
 

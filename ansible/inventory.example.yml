@@ -1,0 +1,13 @@
+# ==============================================================================
+# Ansible Inventory Template for Edge AI Node Cluster
+# Copy to inventory.yml and populate your node IP/hostname.
+# Supports environment variables: EDGE_NODE_HOST and EDGE_NODE_USER.
+# ==============================================================================
+all:
+  children:
+    edge_nodes:
+      hosts:
+        ubuntu01:
+          ansible_host: "{{ lookup('env', 'EDGE_NODE_HOST') | default('192.168.1.100', true) }}"
+          ansible_user: "{{ lookup('env', 'EDGE_NODE_USER') | default('ai-agent', true) }}"
+          ansible_python_interpreter: /usr/bin/python3

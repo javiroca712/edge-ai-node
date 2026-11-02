@@ -1,4 +1,5 @@
-$Endpoint = "http://100.104.80.65:8083/v1/chat/completions"
+$NodeHost = if ($env:EDGE_NODE_HOST) { $env:EDGE_NODE_HOST } else { "100.104.80.65" }
+$Endpoint = "http://${NodeHost}:30083/v1/chat/completions"
 $BodyObj = @{
     model = "Meta-Llama-3.1-8B-Instruct"
     messages = @(

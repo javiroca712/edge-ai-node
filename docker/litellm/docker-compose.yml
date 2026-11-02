@@ -1,6 +1,6 @@
 services:
   litellm:
-    image: ghcr.io/berriai/litellm:main-latest
+    image: ghcr.io/berriai/litellm:main-v1.49.5
     container_name: litellm-router
     extra_hosts:
       - "edge-node:${EDGE_NODE_HOST:-127.0.0.1}"

@@ -4,7 +4,7 @@ global:
 scrape_configs:
   - job_name: "llama-api"
     static_configs:
-      - targets: ["edge-node:8082", "edge-node:8083"]
+      - targets: ["edge-node:8082", "edge-node:30083"]
 
   - job_name: "ubuntu-hardware"
     static_configs:

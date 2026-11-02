@@ -24,7 +24,7 @@
     repo: "{{ sd_cpp_repo }}"
     dest: "{{ sd_cpp_dest }}"
     recursive: yes
-    version: master
+    version: "{{ sd_cpp_version }}"
     force: no
   when: not sd_cli_bin.stat.exists
 

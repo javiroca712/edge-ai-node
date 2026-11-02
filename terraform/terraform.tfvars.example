@@ -1,0 +1,9 @@
+# Example Terraform Variables
+# Copy to terraform.tfvars or pass via environment TF_VAR_*
+
+kubeconfig_path          = "/root/.kube/kubeconfig.yaml"
+namespace                = "edge-ai-node"
+edge_node_host           = "100.104.80.65"
+container_registry       = "ghcr.io/javiroca712"
+image_tag                = "latest"
+deploy_observability_stack = false

@@ -9,9 +9,9 @@
 - name: Audit host memory and swap state
   assert:
     that:
-      - ansible_facts['memtotal_mb'] <= 4500
-      - ansible_facts['swaptotal_mb'] >= 8000
-    fail_msg: "Host does not match expected edge profile (4GB RAM, >=8GB Swap). Check hardware inventory."
+      - ansible_facts['memtotal_mb'] >= 2048
+      - ansible_facts['swaptotal_mb'] >= 4096
+    fail_msg: "Host does not meet minimal edge requirements (>=2GB RAM, >=4GB Swap). Check hardware inventory."
     quiet: yes
 
 - name: Check if k3s agent is already installed
@@ -21,7 +21,7 @@
 
 - name: Deploy dynamic hardware discovery script
   copy:
-    src: ../../../scripts/discover_node_hardware.sh
+    src: discover_node_hardware.sh
     dest: /usr/local/bin/discover_node_hardware.sh
     mode: "0755"
     owner: root

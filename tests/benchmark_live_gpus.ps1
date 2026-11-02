@@ -3,7 +3,7 @@
 # Executes identical payloads against live endpoints on ports 8082 and 8083
 # ==============================================================================
 
-$nodeHost = "100.104.80.65"
+$nodeHost = if ($env:EDGE_NODE_HOST) { $env:EDGE_NODE_HOST } else { "100.104.80.65" }
 $portGPU0 = 8082
 $portGPU1 = 8083
 

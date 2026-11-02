@@ -1,6 +1,7 @@
 ---
 sd_cpp_repo: "https://github.com/leejet/stable-diffusion.cpp"
 sd_cpp_dest: "/opt/stable-diffusion.cpp"
+sd_cpp_version: "master"
 sd_cpp_amdgpu_target: "gfx1030"
 
 models_base_dir: "/opt/ai-models"

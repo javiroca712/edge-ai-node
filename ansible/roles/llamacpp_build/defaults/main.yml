@@ -1,0 +1,4 @@
+---
+llamacpp_repo: "https://github.com/ggml-org/llama.cpp.git"
+llamacpp_version: "b4000"
+llamacpp_dest: "/opt/llama.cpp"
